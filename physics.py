@@ -28,9 +28,9 @@ def convection_efield(v, B):
     Ec = 1e-3 * xr.DataArray(np.stack([(v[:,1]*B[:,2] - v[:,2]*B[:,1]),
                                        (v[:,2]*B[:,0] - v[:,0]*B[:,2]),
                                        (v[:,0]*B[:,1] - v[:,1]*B[:,0])], axis=1),
-                            dims=('time', 'coordinates'),
+                            dims=('time', 'component'),
                             coords={'time': v['time'],
-                                    'coordinates': ['x', 'y', 'z']}
+                                    'component': ['x', 'y', 'z']}
                             )
 
     return Ec
@@ -127,10 +127,10 @@ def De_moms(E, B, n, Vi, Ve):
     ----------
     E : array-like (N, 3)
         Electric field measured in units of [mV/m]
-    Ve : array-like (N, 3)
-        Electron bulk velocity in units of [km/s]
     B : array-like (N, 3)
         Vector magnetic field in units of [nT]
+    Ve : array-like (N, 3)
+        Electron bulk velocity in units of [km/s]
     n : array-like (N, 3)
         Number density in units of [km]
     Vi : array-like (N, 3)
@@ -152,7 +152,7 @@ def De_moms(E, B, n, Vi, Ve):
     J = current_density_moms(n, Vi, Ve)
     
     # Electron frame dissipation measure
-    De = J.dot(E_prime, dims='coordinates')
+    De = J.dot(E_prime, dims='component')
 
     return De
 
@@ -181,7 +181,7 @@ def De_curl(E, B, Ve, R):
     
     # Convective electric field
     Ec = xr.Dataset()
-    for idx, vname, Bname in enumerate(zip(Ve, B)):
+    for idx, (vname, Bname) in enumerate(zip(Ve, B)):
         Ec['Ec{0}'.format(idx)] = convection_efield(Ve[vname], B[Bname])
     
     # Electric field in the electron rest frame
@@ -191,7 +191,7 @@ def De_curl(E, B, Ve, R):
     J = current_density_curl(R, B)
     
     # Electron frame dissipation measure
-    De = J.dot(E_prime, dims='coordinates')
+    De = J.dot(E_prime, dims='component')
 
     return De
 

@@ -1,23 +1,82 @@
 import datetime as dt
 import xarray as xr
 import numpy as np
+from pathlib import Path
+
 from pymms.data import util, fgm, edp, fpi
+from pymms import config
 import tools
 
+output_dir = Path(config['dropbox_root'])
 
-def load_data(t0, t1, dt_out=dt.timedelta(milliseconds=30)):
+def load_data(t0, t1, dt_out=np.timedelta64(30, 'ms')):
+    '''
+    Load MMS data for a given time interval. Data loaded are the
+      * MEC - spacecraft position
+      * FGM - magnetic field in GSE
+      * EDP - electric field in GSE
+      * DIS - ion velocity, scalar pressure, pressure tensor
+      * DES - electron velocity, scalar pressure, pressure tensor
+    
+    Data coordinates and time cadence are standardized.
+
+    Parameters
+    ----------
+    t0, t1 : `datetime.datetime`
+        Start and end of the time interval to be loaded
+    dt_out, `numpy.timedelta64`
+        Sample interval to which all data is resampled. Default is the 30ms
+        sample interval of DES
+    
+    Output
+    ------
+    filepath : `pathlib.Path`
+        Path to netCDF file containing the data.
+    '''
 
     # Get the data from each spacecraft
     mec_data = get_data('mec', t0, t1, dt_out)
     fgm_data = get_data('fgm', t0, t1, dt_out)
     edp_data = get_data('edp', t0, t1, dt_out)
     des_data = get_data('des', t0, t1, dt_out)
+    dis_data = get_data('dis', t0, t1, dt_out)
 
     # Combine into a single dataset
-    data = xr.merge([mec_data, fgm_data, edp_data, des_data])
+    data = xr.merge([mec_data, fgm_data, edp_data, des_data, dis_data])
+
+    # Create a file name
+    filename = '_'.join(('mms', 'hgio',
+                         t0.strftime('%Y%m%d%_H%M%S'),
+                         t1.strftime('%Y%m%d%_H%M%S')))
+    filepath = (output_dir / filename).with_suffix('.nc')
+
+    # Save to data file
+    data.to_netcdf(filepath)
+
+    return filepath
 
 
 def get_data(instr, t0, t1, dt_out=np.timedelta64(30, 'ms')):
+    '''
+    Get data from a single instrument. Data coordinates and time cadence
+    are standardized.
+
+    Parameters
+    ----------
+    instr : str
+        Name of the instrument for which to load data
+        ('fgm', 'edp', 'des', 'dis', 'mec')
+    t0, t1 : `datetime.datetime`
+        Start and end of the time interval to be loaded
+    dt_out, `numpy.timedelta64`
+        Sample interval to which all data is resampled. Default is the 30ms
+        sample interval of DES
+    
+    Output
+    ------
+    data : `xarray.Dataset`
+        The data
+    '''
 
     extrapolate = False
     method = 'nearest'
@@ -35,6 +94,11 @@ def get_data(instr, t0, t1, dt_out=np.timedelta64(30, 'ms')):
     elif instr == 'des':
         func = get_des_data
         method = 'interp_gaps' # Resample 30ms to 30ms; Nearest w/gap detection
+        extrapolate = True
+    elif instr == 'dis':
+        func = get_dis_data
+        method = 'interp_gaps' # Resample 150ms to 30ms; Nearest w/gap detection
+        extrapolate = True
     else:
         raise ValueError('Instrument {0} not recognized'.format(instr))
     
@@ -63,6 +127,22 @@ def get_data(instr, t0, t1, dt_out=np.timedelta64(30, 'ms')):
 
 
 def get_mec_data(sc, t0, t1):
+    '''
+    Get MEC data for a given spacecraft and time interval.
+
+    Parameters
+    ----------
+    sc : str
+        The spacecraft for which data is to be loaded
+        ('mms1', 'mms2', 'mms3', 'mms4')
+    t0, t1 : `datetime.datetime`
+        Start and end of the time interval to be loaded
+    
+    Output
+    ------
+    r_data : `xarray.Dataset`
+        The spacecraft position in GSE coordinates
+    '''
 
     # Make sure we get at least two samples to enable linear interpolation.
     #   - Sample rate is once per 30 sec. M
@@ -90,6 +170,22 @@ def get_mec_data(sc, t0, t1):
     return r_data
 
 def get_fgm_data(sc, t0, t1):
+    '''
+    Get FGM data for a given spacecraft and time interval.
+
+    Parameters
+    ----------
+    sc : str
+        The spacecraft for which data is to be loaded
+        ('mms1', 'mms2', 'mms3', 'mms4')
+    t0, t1 : `datetime.datetime`
+        Start and end of the time interval to be loaded
+    
+    Output
+    ------
+    b_data : `xarray.Dataset`
+        The vector magnetic field in GSE coordinates
+    '''
 
     # FGM
     #   - sampled at 4 S/s in survey mode and 128 S/s in burst mode.
@@ -98,12 +194,15 @@ def get_fgm_data(sc, t0, t1):
 
     # Select the magnetic field in GSE coordinates
     #   - Remove the total magnetic field
-    #   - NOTE: These are the center times
     #   - NOTE: in Survey mode there can be a mix of sample rates (fast/slow)
     b_data = (b_data['B_GSE'][:,0:3]
               .rename({'b_index': 'component'})
               .assign_coords({'dt_plus': (b_data['time_delta'].mean() * 1e9).astype('timedelta64[ns]')})
               )
+
+    # Move the time stamp to the beginning of the sample interval
+    b_data['time'] = b_data['time'] - b_data['dt_plus']
+    b_data['dt_plus'] = 2*b_data['dt_plus']
 
     # Name with the spacecraft number to make it unique
     b_data.name = 'B' + sc[-1]
@@ -112,6 +211,22 @@ def get_fgm_data(sc, t0, t1):
 
 
 def get_edp_data(sc, t0, t1):
+    '''
+    Get EDP data for a given spacecraft and time interval.
+
+    Parameters
+    ----------
+    sc : str
+        The spacecraft for which data is to be loaded
+        ('mms1', 'mms2', 'mms3', 'mms4')
+    t0, t1 : `datetime.datetime`
+        Start and end of the time interval to be loaded
+    
+    Output
+    ------
+    e_data : `xarray.Dataset`
+        The vector electric field in GSE coordinates
+    '''
 
     # EDP
     #   - data rate is 32 S/s in survey mode and 4098 S/s in burst mode.
@@ -126,6 +241,10 @@ def get_edp_data(sc, t0, t1):
                               'component': ['x', 'y', 'z']})
               )
 
+    # Put the time stamp at the beginning of the sample interval
+    e_data['time'] = e_data['time'] - e_data['dt_plus']
+    e_data['dt_plus'] = 2*e_data['dt_plus']
+
     # Name with the spacecraft number to make it unique
     e_data.name = 'E' + sc[-1]
     
@@ -133,9 +252,26 @@ def get_edp_data(sc, t0, t1):
 
 
 def get_des_data(sc, t0, t1):
+    '''
+    Get DES data for a given spacecraft and time interval.
+
+    Parameters
+    ----------
+    sc : str
+        The spacecraft for which data is to be loaded
+        ('mms1', 'mms2', 'mms3', 'mms4')
+    t0, t1 : `datetime.datetime`
+        Start and end of the time interval to be loaded
+    
+    Output
+    ------
+    des_data : `xarray.Dataset`
+        The velocity, scalar pressure, and pressure tensor
+    '''
 
     # DES
-    des_data = fpi.load_moms(sc='mms1', mode='brst', optdesc='des-moms', start_date=t0, end_date=t1)
+    des_data = fpi.load_moms(sc='mms1', mode='brst', optdesc='des-moms',
+                             start_date=t0, end_date=t1, center_times=False)
 
     # Select the velocity
     v_data = (des_data['velocity']
@@ -149,10 +285,67 @@ def get_des_data(sc, t0, t1):
     # Select the pressure tensor
     #   - Stanardize the components
     P_data = (des_data['prestensor']
-              .rename({'cart_index_dim1': 'comp_1', 'cart_index_dim2': 'comp_2'})
+              .drop(['cart_index_dim1', 'cart_index_dim2'])
+              .rename({'cart_index_dim1': 'comp1',
+                       'cart_index_dim2': 'comp2'})
+              .assign_coords({'comp1': ['x', 'y', 'z'],
+                              'comp2': ['x', 'y', 'z']})
               )
     
     # Combine each into a single dataset
-    return xr.Dataset({'V'+sc[-1]: v_data,
-                       'p'+sc[-1]: p_data,
-                       'P'+sc[-1]: P_data}).assign_coords({'dt_plus': des_data['Epoch_plus_var'].data})
+    return (xr.Dataset({'ne'+sc[-1]: des_data['density'],
+                        'Ve'+sc[-1]: v_data,
+                        'pe'+sc[-1]: p_data,
+                        'Pe'+sc[-1]: P_data})
+            .assign_coords({'dt_plus': np.timedelta64(int(1e9*des_data['Epoch_plus_var']), 'ns')})
+            )
+
+
+def get_dis_data(sc, t0, t1):
+    '''
+    Get DIS data for a given spacecraft and time interval.
+
+    Parameters
+    ----------
+    sc : str
+        The spacecraft for which data is to be loaded
+        ('mms1', 'mms2', 'mms3', 'mms4')
+    t0, t1 : `datetime.datetime`
+        Start and end of the time interval to be loaded
+    
+    Output
+    ------
+    dis_data : `xarray.Dataset`
+        The velocity, scalar pressure, and pressure tensor
+    '''
+
+    # DIS
+    dis_data = fpi.load_moms(sc='mms1', mode='brst', optdesc='dis-moms',
+                             start_date=t0, end_date=t1, center_times=False)
+
+    # Select the velocity
+    v_data = (dis_data['velocity']
+              .rename({'velocity_index': 'component'})
+              .assign_coords({'component': ['x', 'y', 'z']})
+              )
+    
+    # Select the scalar pressure
+    p_data =  dis_data['p']
+
+    # Select the pressure tensor
+    #   - Stanardize the components
+    P_data = (dis_data['prestensor']
+              .drop(['cart_index_dim1', 'cart_index_dim2'])
+              .rename({'cart_index_dim1': 'comp1',
+                       'cart_index_dim2': 'comp2'})
+              .assign_coords({'comp1': ['x', 'y', 'z'],
+                              'comp2': ['x', 'y', 'z']})
+              )
+    
+    # Combine each into a single dataset
+    return (xr.Dataset({'ni'+sc[-1]: dis_data['density'],
+                        'Vi'+sc[-1]: v_data,
+                        'pi'+sc[-1]: p_data,
+                        'Pi'+sc[-1]: P_data})
+            .assign_coords({'dt_plus': np.timedelta64(int(1e9*dis_data['Epoch_plus_var']), 'ns')})
+            )

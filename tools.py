@@ -46,37 +46,47 @@ def binned_avg_ds(ds, t_out):
     
     # Step through each variable in the dataset
     for name, var in ds.data_vars.items():
-        # A time series
-        if var.ndim == 1:
-            if np.issubdtype(var.dtype, np.timedelta64):
-                temp = ds_bin_avg(var.data.astype(float))
-                temp = temp.astype(np.timedelta64)
-            else:
-                temp = ds_bin_avg(var.data)
-            
-            temp = xr.DataArray(temp,
-                                dims=('time',),
-                                coords={'time': t_out[:-1]},
-                                name=name)
-        
-        # A vector of time series
-        elif var.ndim == 2:
-            temp_vars = []
-            
-            # Bin each component of the vector
-            for idx in range(var.shape[1]):
-                temp_vars.append(ds_bin_avg(var.data[:,idx]))
-            
-            # Combine bin-averaged components into an array
-            temp = xr.DataArray(np.column_stack(temp_vars),
-                                dims=('time', var.dims[1]),
-                                coords={'time': t_out[:-1],
-                                        var.dims[1]: var.coords[var.dims[1]]},
-                                name=name)
 
+        # Remember what the variable looked like
+        var_shape = (len(t_bins)-1, *var.shape[1:])
+        var_ndim = var.ndim
+        var_dims = var.dims
+        var_dtype = var.dtype
+        
+        # Reshape the variable to be 2D
+        if var_ndim == 1:
+            var = var.expand_dims('temp', axis=1)
         else:
-            warn('Variable {0} has > 2 dimensions. Skipping'
-                 .format(name))
+            var = var.stack(temp=var_dims[1:])
+        
+        # scipy does not like datetimes/timedelta of any type so convert to float
+        if np.issubdtype(var_dtype, np.timedelta64):
+            var = var.data.astype(float)
+
+        # Bin-average each component of the vector
+        temp_vars = []
+        for idx in range(var.shape[1]):
+            temp_vars.append(ds_bin_avg(var.data[:,idx]))
+            
+        # Reshape the data back to how it was
+        temp_vars = np.column_stack(temp_vars)
+        if var_ndim == 1:
+            temp_vars = temp_vars.squeeze()
+        else:
+            temp_vars = temp_vars.reshape(var_shape)
+        
+        # Convert back to datetime/timedelta
+        if np.issubdtype(var_dtype, np.timedelta64):
+            temp_vars = temp_vars.astype(np.timedelta64)
+            
+        # Combine bin-averaged components into an array
+        temp = xr.DataArray(temp_vars,
+                            dims=var_dims,
+                            coords=({'time': t_out[:-1]}.update(
+                                    {key: value 
+                                    for key, value in var.coords.items()
+                                    if key != var_dims[0]})),
+                            name=name)
         
         # Save the variables in the output dictionary
         vars_out[name] = temp
@@ -340,7 +350,8 @@ def interp_over_gaps(data, t_out, extrapolate=False):
     istart = 0
     for igap in idx_gaps:
         # If no extrapolation, the first and last data points turn into NaNs
-        # because one of the nearest neighbors is beyond the data interval
+        # or are dropped because one of the nearest neighbors is beyond the
+        # data interval
         #   - d_in:     *   *   *   *   *
         #   - t_in:     *   *   *   *   *
         #   - t_out:  *   *   *   *   *   *
@@ -415,27 +426,31 @@ def recip_vec(R):
 def resample(data, t0, t1, dt_out, extrapolate=False, method='nearest'):
 
     # Generate a set of timestamps
+    #   - The end time will be the next sample after t1
+    #   - For binned averages, we want the closed interval [t_out[0], t_out[-1]]
+    #   - For all other resample methods, we want the half-open interval [t_out[0], t_out[-1])
     t_out = generate_time_stamps(np.datetime64(t0),
                                  np.datetime64(t1),
                                  np.timedelta64(dt_out))
 
+    # Align the time
+    #   - Same sample rate but different time stamps
     if (data['dt_plus'] == np.timedelta64(dt_out)).all():
         
         # Align the time stamps
         if (len(data['time']) != len(t_out)) or (data['time'] != t_out).any():
             data = interp_over_gaps(data, t_out[:-1])
-            
     
     # Upsample
     #   - Less than two samples per target sampling interval
-    elif (data['dt_plus'] > (0.5 * np.timedelta64(dt_out))).any():
+    elif (data['dt_plus'] > np.timedelta64(dt_out)).any():
         
         # Repeat values
         if method == 'repeat':
             data = expand_times(data, t_out[:-1])
         
         elif method in ('nearest', 'linear'):
-            data = data.interp({'time': t_out}, method=method)
+            data = data.interp({'time': t_out[:-1]}, method=method)
 
         # Interpolate
         elif method == 'interp_gaps':
