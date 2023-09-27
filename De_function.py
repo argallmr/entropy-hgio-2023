@@ -66,7 +66,7 @@ def De(sc,mode,species,t0,t1):
 
     e1=e['E_GSE']
     #Error in here?!!
-    E = xr.Dataset({'E1': e1.rename({'mms1_edp_label1_fast_l2': 'component'}).assign_coords({'component': ['x', 'y', 'z']})})
+    E = xr.Dataset({'E1': e1.rename({''.join(sc)+'_edp_label1_fast_l2': 'component'}).assign_coords({'component': ['x', 'y', 'z']})})
 
     D= E['E1'] + curlB
 
