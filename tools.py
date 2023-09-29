@@ -93,7 +93,7 @@ def binned_avg_ds(ds, t_out):
     
     # Create a new dataset
     return xr.Dataset(vars_out)
-
+ 
 
 def binned_avg(data, t_out):
     '''

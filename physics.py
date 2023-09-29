@@ -2,6 +2,9 @@ import numpy as np
 import xarray as xr
 from scipy import constants as c
 from tools import recip_vec, curl, divergence, gradient, barycentric_avg
+from pathlib import Path
+
+from pymms.data import fpi
 
 mu0 = c.physical_constants['vacuum mag. permeability']           # permeability of free space
 epsilon0 = c.physical_constants['vacuum electric permittivity']  # permittivity of free space
@@ -194,6 +197,68 @@ def De_curl(E, B, Ve, R):
     De = J.dot(E_prime, dims='component')
 
     return De
+
+
+def maxwellian_lut(f, n=None, t=None, dims=(100, 100), filename=None):
+    '''
+    Create a Maxwellian Look-Up Table (LUT) that span the density and temperature
+    parameter space of the measured distribution.
+
+    Parameters
+    ----------
+    f : (N,E,T,P) or (E,T,P), `xarray.DataArray`
+        The distribution functions for which the LUT is created, haveing time (N),
+        energy (E), polar/theta angle (T), and azimuth/phi angle (P) dimensions
+        and coordinates. If `n` and `t` are given, then a signle distribution
+        with dimensions/coordinates (E,T,P) is required.
+    n : (N,), `xarray.DataArray`
+        Number density caluclated from the distribution functions for which
+        the LUT is created.
+    t : (N,), `xarray.DataArray`
+        Scalar temperature caluclated from the distribution functions for which
+        the LUT is created.
+    dims : (2,), tuple
+        Size of the LUT in the density and temperature dimensions. The bigger
+        the dimensions, the more accurate the results. Note that a 100x100
+        LUT (the default) can take up to 45 minutes.
+    filename : path-like
+        Destination of the LUT if it is to be written to a file.
+    
+    Returns
+    -------
+    file : path-like
+        Path to the netCDF LUT file.
+    '''
+
+    # Caluclate the density to determine the parameter range
+    if (n is None):
+        n = fpi.density(f)
+    
+    # Calculate the temperature to determine the parameter range
+    if t is None:
+        V = fpi.velocity(f, N=n)
+        T = fpi.temperature(f, N=n, V=V)
+        t = ((T[:,0,0] + T[:,1,1] + T[:,2,2]) / 3.0).drop(['t_index_dim1', 't_index_dim2'])
+    
+    # Only a signle distribution is required
+    if f.ndim > 3:
+        f = f[[0], ...]
+   
+    # Get density and temperature ranges over which to create the LUT
+    # and calculate the number of bins to use
+    n_lut_range = (0.9*n.min().values, 1.1*n.max().values)
+    t_lut_range = (0.9*t.min().values, 1.1*t.max().values)
+    # dims = (int(10**max(np.floor(np.abs(np.log10(N_range[1] - N_range[0]))), 1)),
+    #         int(10**max(np.floor(np.abs(np.log10(t_range[1] - t_range[0]))), 1)))
+    
+    # If the look-up table does not already exist, create it
+    if filename is not None:
+        fpi.maxwellian_lookup(f, n_lut_range, t_lut_range, dims=dims, fname=filename)
+        lut = filename
+    else:
+        lut = fpi.maxwellian_lookup(f, n_lut_range, t_lut_range, dims=dims)
+
+    return lut
 
 
 def pressure_dilatation(R, U, p):

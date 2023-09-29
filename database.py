@@ -5,8 +5,10 @@ from pathlib import Path
 
 from pymms.data import util, fgm, edp, fpi
 from pymms import config
-import tools
 
+import tools, physics
+
+lut_dir = Path('~/data/fpi_fmax_lookup_tables/').expanduser()
 output_dir = Path(config['dropbox_root'])
 
 def load_data(t0, t1, dt_out=np.timedelta64(30, 'ms')):
@@ -349,3 +351,117 @@ def get_dis_data(sc, t0, t1):
                         'Pi'+sc[-1]: P_data})
             .assign_coords({'dt_plus': np.timedelta64(int(1e9*dis_data['Epoch_plus_var']), 'ns')})
             )
+
+
+def max_lut_filename(sc, instr, mode, level, optdesc, start_date, end_date,
+                     resolution=(100, 100)):
+    '''
+    Create a file name for the Maxwellian Look-Up Table
+
+    Parameters
+    ----------
+    sc : str
+        MMS spacecraft identifier ('mms1', 'mms2', 'mms3', 'mms4')
+    instr : str
+        Instrument short name ('fpi',)
+    mode : str
+        Operating mode ('brst', 'srvy', 'fast')
+    level : str
+        Data level ('l2,')
+    optdesc : str
+        Filename optional descriptor ('dis-dist', 'des-dist')
+    start_date, end_date : `datetime.datetime`
+        Start and end of the time interval
+    
+    Returns
+    -------
+    lut_file : path-like
+        Path to the Maxwellian Look-Up Table
+    '''
+    res_str = '{0}x{1}'.format(*resolution)
+    
+    # Create a file name for the look-up table
+    lut_file = lut_dir / '_'.join((sc, instr, mode, level,
+                                   optdesc+'-lut-'+res_str,
+                                   start_date.strftime('%Y%m%d_%H%M%S'),
+                                   end_date.strftime('%Y%m%d_%H%M%S')))
+    lut_file = lut_file.with_suffix('.ncdf')
+
+    return lut_file
+
+
+def max_lut_load(sc, mode, optdesc, start_date, end_date):
+    '''
+    Create a Maxwellian Look-Up Table (LUT).
+
+    Parameters
+    ----------
+    sc : str
+        MMS spacecraft identifier ('mms1', 'mms2', 'mms3', 'mms4')
+    mode : str
+        Operating mode ('brst', 'srvy', 'fast')
+    optdesc : str
+        Filename optional descriptor ('dis-dist', 'des-dist')
+    start_date, end_date : `datetime.datetime`
+        Start and end of the time interval
+    
+    Returns
+    -------
+    lut_file : path-like
+        Path to the Maxwellian Look-Up Table
+    '''
+    
+    instr = 'fpi'
+    level = 'l2'
+
+    lut_file = max_lut_filename(sc, instr, mode, level, optdesc,
+                                start_date, end_date)
+
+    # If the LUT does not exist, create it
+    if not lut_file.exists():
+        # Precondition the distribution function
+        f = max_lut_precond_f(sc, mode, optdesc, start_date, end_date)
+
+        # Create the look-up table
+        lut_file = physics.maxwellian_lut(f, filename=lut_file)
+    
+    return lut_file
+
+
+def max_lut_precond_f(sc, mode, optdesc, start_date, end_date):
+    '''
+    Create a Maxwellian Look-Up Table (LUT).
+
+    Parameters
+    ----------
+    sc : str
+        MMS spacecraft identifier ('mms1', 'mms2', 'mms3', 'mms4')
+    mode : str
+        Operating mode ('brst', 'srvy', 'fast')
+    optdesc : str
+        Filename optional descriptor ('dis-dist', 'des-dist')
+    start_date, end_date : `datetime.datetime`
+        Start and end of the time interval
+    
+    Returns
+    -------
+    lut_file : path-like
+        Path to the Maxwellian Look-Up Table
+    '''
+    
+    instr = 'fpi'
+    level = 'l2'
+    
+    # Read the data
+    #   - This includes removal of the photo-electron model
+    fpi_dist = fpi.load_dist(sc=sc, mode=mode, optdesc=optdesc,
+                            start_date=start_date, end_date=end_date)
+
+    # Precondition the distributions
+    #   - Wrap phi, extrapolate theta and E, remove s/c potential
+    fpi_kwargs = fpi.precond_params(sc, mode, level, optdesc,
+                                    start_date, end_date,
+                                    time=fpi_dist['time'])
+    f = fpi.precondition(fpi_dist['dist'], **fpi_kwargs)
+
+    return f
