@@ -465,3 +465,102 @@ def max_lut_precond_f(sc, mode, optdesc, start_date, end_date):
     f = fpi.precondition(fpi_dist['dist'], **fpi_kwargs)
 
     return f
+
+
+def max_lut_optimize(lut, f, n, t, method='nt'):
+    '''
+    Determine the optimal Maxwellian distribution that best matches
+    the density and temperature of the measured distribution function.
+
+    Parameters
+    ----------
+    lut : `xarray.Dataset`
+        Maxwellian look-up table
+    n : (N,), array-like
+        Number density calculated from the measured distribution
+    t : (N,), array-like
+        Scalar temperature calculated from the measured distribution
+    f : (N,E,T,P), array-like
+        Measured distribution function
+    method : str
+        Method of optimization:
+            * 'n' : Minimize least square error (LSE) in density error
+            * 't' : Minimize LSE in scalar temperature
+            * 'nt' : Minimize LSE in both density and scalar temperature
+            * 'interp': Interplate the density and temperature grid of the
+                        look-up table onto the measured density and
+                        temperature values
+    
+    Returns
+    -------
+    optimized_lut : `xarray.Dataset`
+        Equivalent maxwellian distribution and associated density, temperature,
+        entropy, and velocity-space entropy
+    '''
+    
+    dims = (100, 100)
+    
+    n_M = np.zeros_like(n)
+    t_M = np.zeros_like(t)
+    s_M = np.zeros_like(n)
+    sV_M = np.zeros_like(n)
+    f_M = np.zeros_like(f)
+    
+    # Minimize density error
+    if method == 'n':
+        for idx, dens in enumerate(n):
+            imin = np.argmin(np.abs(lut['N'].data - dens.item()))
+            irow = imin // dims[1]
+            icol = imin % dims[1]
+            n_M[idx] = lut['N'][irow, icol]
+            t_M[idx] = lut['t'][irow, icol]
+            s_M[idx] = lut['s'][irow, icol]
+            sV_M[idx] = lut['sv'][irow, icol]
+            f_M[idx,...] = lut['f'][irow, icol, ...]
+
+    # Minimize temperature error
+    elif method == 't':
+        for idx, temp in enumerate(t):
+                imin = np.argmin(np.abs(lut['t'].data - temp.item()))
+                irow = imin // dims[1]
+                icol = imin % dims[1]
+                n_M[idx] = lut['N'][irow, icol]
+                t_M[idx] = lut['t'][irow, icol]
+                s_M[idx] = lut['s'][irow, icol]
+                sV_M[idx] = lut['sv'][irow, icol]
+                f_M[idx,...] = lut['f'][irow, icol, ...]
+
+    # Minimize error in both density and temperature
+    elif method == 'nt':
+        for idx, (dens, temp) in enumerate(zip(n, t)):
+            imin = np.argmin(np.sqrt((lut['t'].data - temp.item())**2
+                                     + (lut['N'].data - dens.item())**2
+                                     ))
+            irow = imin // dims[1]
+            icol = imin % dims[1]
+            n_M[idx] = lut['N'][irow, icol]
+            t_M[idx] = lut['t'][irow, icol]
+            s_M[idx] = lut['s'][irow, icol]
+            sV_M[idx] = lut['sv'][irow, icol]
+            f_M[idx,...] = lut['f'][irow, icol, ...]
+    
+    # Interpolate
+    elif method == 'interp':
+        lut_interp = lut.interp({'N_data': n, 't_data': t}, method='linear')
+        n_M = lut_interp['N']
+        t_M = lut_interp['t']
+        s_M = lut_interp['s']
+        sV_M = lut_interp['sv']
+        f_M = lut_interp['f']
+    
+    return xr.Dataset({'time': ('time', n['time'].data),
+                       'phi': (('time', 'phi_index'), f['phi'].data),
+                       'theta': ('theta', f['theta'].data),
+                       'energy': (('time', 'energy_index'), f['energy'].data),
+                       'U': (('time', 'energy_index'), f['U'].data),
+                       'n_M': ('time', n_M),
+                       't_M': ('time', t_M),
+                       's_M': ('time', s_M),
+                       'sV_M': ('time', sV_M),
+                       'f_M': (('time', 'phi_index', 'theta', 'energy_index'), f_M)
+                       }).set_coords(['phi', 'energy', 'U'])

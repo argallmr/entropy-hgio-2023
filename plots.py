@@ -1,5 +1,6 @@
 import numpy as np
 import xarray as xr
+from scipy import constants as c
 from pathlib import Path
 from matplotlib import pyplot as plt, dates as mdates, cm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -18,6 +19,9 @@ os.chdir('/Users/argall/Documents/Python/pymms/examples/')
 # os.chdir(r"D:\uni UNH\mms\pymms\examples\\")
 # os.chdir('/Users/krmhanieh/Documents/GitHub/pymms/examples')
 import util
+
+
+eV2K = c.value('electron volt-kelvin relationship')
 
 
 data_path = Path(config['dropbox_root'])
@@ -167,3 +171,248 @@ def max_lut(sc, mode, optdesc, start_date, end_date):
     ax.legend()
 
     plt.show()
+
+
+def max_lut_error(sc, mode, optdesc, start_date, end_date):
+    '''
+    Plot a Maxwellian Look-Up Table (LUT). If a LUT file
+    is not found, a LUT is created.
+
+    Parameters
+    ----------
+    sc : str
+        MMS spacecraft identifier ('mms1', 'mms2', 'mms3', 'mms4')
+    mode : str
+        Operating mode ('brst', 'srvy', 'fast')
+    optdesc : str
+        Filename optional descriptor ('dis-dist', 'des-dist')
+    start_date, end_date : `datetime.datetime`
+        Start and end of the time interval
+    '''
+
+    # Get the LUT
+    lut_file = database.max_lut_load(sc, mode, optdesc, start_date, end_date)
+    lut = xr.load_dataset(lut_file)
+
+    #
+    #  Measured parameters
+    #
+
+    # Measured distrubtion function
+    f = database.max_lut_precond_f(sc, mode, optdesc, start_date, end_date)
+    
+    # Moments and entropy parameters for the measured distribution
+    n = fpi.density(f)
+    V = fpi.velocity(f, N=n)
+    T = fpi.temperature(f, N=n, V=V)
+    P = fpi.pressure(f, N=n, T=T)
+    t = ((T[:,0,0] + T[:,1,1] + T[:,2,2]) / 3.0).drop(['t_index_dim1', 't_index_dim2'])
+    p = ((P[:,0,0] + P[:,1,1] + P[:,2,2]) / 3.0).drop(['t_index_dim1', 't_index_dim2'])
+    s = fpi.entropy(f)
+    sV = fpi.vspace_entropy(f, N=n, s=s)
+
+    #
+    #  Equivalent Maxwellian parameters
+    #
+    
+    # Create equivalent Maxwellian distributions and calculate moments
+    f_max = fpi.maxwellian_distribution(f, N=n, bulkv=V, T=t)
+    
+    s_max_moms = fpi.maxwellian_entropy(n, p)
+    n_max = fpi.density(f_max)
+    V_max = fpi.velocity(f_max, N=n_max)
+    T_max = fpi.temperature(f_max, N=n_max, V=V_max)
+    s_max = fpi.entropy(f_max)
+    sV_max = fpi.vspace_entropy(f, N=n_max, s=s_max)
+    t_max = ((T_max[:,0,0] + T_max[:,1,1] + T_max[:,2,2]) / 3.0).drop(['t_index_dim1', 't_index_dim2'])
+    sV_rel_max = physics.relative_entropy(f, f_max)
+
+    #
+    #  Optimized equivalent Maxwellian parameters
+    #
+    
+    # Equivalent Maxwellian distribution function
+    opt_lut = database.max_lut_optimize(lut, f, n, t, method='nt')
+
+    sV_rel_opt = physics.relative_entropy(f, opt_lut['f_M'])
+
+    #
+    #  Plot
+    #
+
+    # Create the plot
+    fix, axes = _max_lut_err(n, t, s, sV, s_max_moms,
+                             n_max, t_max, s_max, sV_max, sV_rel_max,
+                             opt_lut['n_M'], opt_lut['t_M'], opt_lut['s_M'],
+                             opt_lut['sV_M'], sV_rel_opt)
+
+    plt.show()
+
+
+def _max_lut_err(n, t, s, sv, s_max_moms,
+                 n_max, t_max, s_max, sv_max, sv_rel_max,
+                 n_lut, t_lut, s_lut, sv_lut, sv_rel_lut):
+
+    species = 'e'
+
+    fig, axes = plt.subplots(nrows=5, ncols=1, squeeze=False, figsize=(6.5, 9))
+    plt.subplots_adjust(top=0.95, right=0.95, left=0.25)
+
+    # Error in the adjusted look-up table
+    dn_max = (n - n_max) / n * 100.0
+    dn_lut = (n - n_lut) / n * 100.0
+
+    ax = axes[0,0]
+    l1 = dn_max.plot(ax=ax, label='$\Delta n_{'+species+',Max}/n_{'+species+',Max}$')
+    l2 = dn_lut.plot(ax=ax, label='$\Delta n_{'+species+',lut}/n_{'+species+',lut}$')
+    ax.set_title('')
+    ax.set_xticklabels([])
+    ax.set_xlabel('')
+    ax.set_ylabel('$\Delta n_{'+species+'}/n_{'+species+'}$ (%)')
+    # util.format_axes(ax, xaxis='off')
+    util.add_legend(ax, [l1[0], l2[0]], corner='SE', horizontal=True)
+
+    # Deviation in temperature
+    dt_max = (t - t_max) / t * 100.0
+    dt_lut = (t - t_lut) / t * 100.0
+
+    ax = axes[1,0]
+    l1 = dt_max.plot(ax=ax, label='$\Delta T_{'+species+',Max}/T_{'+species+',Max}$')
+    l2 = dt_lut.plot(ax=ax, label='$\Delta T_{'+species+',lut}/T_{'+species+',lut}$')
+    ax.set_title('')
+    ax.set_xticklabels([])
+    ax.set_xlabel('')
+    ax.set_ylabel('$\Delta T_{'+species+'}/T_{'+species+'}$ (%)')
+    ax.set_ylim(-1,2.5)
+    # util.format_axes(ax, xaxis='off')
+    util.add_legend(ax, [l1[0], l2[0]], corner='NE', horizontal=True)
+
+    # Deviation in entropy
+    ds_moms = (s - s_max_moms) / s * 100.0
+    ds_max = (s - s_max) / s * 100.0
+    ds_lut = (s - s_lut) / s * 100.0
+
+    ax = axes[2,0]
+    l1 = ds_max.plot(ax=ax, label='$\Delta s_{'+species+',Max}/s_{'+species+',Max}$')
+    l2 = ds_lut.plot(ax=ax, label='$\Delta s_{'+species+',lut}/s_{'+species+',lut}$')
+    l3 = ds_moms.plot(ax=ax, label='$\Delta s_{'+species+',moms}/s_{'+species+',moms}$')
+    ax.set_title('')
+    ax.set_xticklabels([])
+    ax.set_xlabel('')
+    ax.set_ylabel('$\Delta s_{'+species+'}/s_{'+species+'}$ (%)')
+    ax.set_ylim(-9,2.5)
+    # util.format_axes(ax, xaxis='off')
+    util.add_legend(ax, [l1[0], l2[0], l3[0]], corner='SE', horizontal=True)
+
+    # Deviation in velocity-space entropy
+    dsv_max = (sv - sv_max) / sv * 100.0
+    dsv_lut = (sv - sv_lut) / sv * 100.0
+
+    ax = axes[3,0]
+    l1 = dsv_max.plot(ax=ax, label='$\Delta s_{V,'+species+',Max}/s_{V,'+species+',Max}$')
+    l2 = dsv_lut.plot(ax=ax, label='$\Delta s_{V,'+species+',lut}/s_{V,'+species+',lut}$')
+    ax.set_title('')
+    ax.set_xlabel('')
+    ax.set_xticklabels([])
+    ax.set_ylabel('$\Delta s_{V,'+species+'}/s_{V,'+species+'}$ (%)')
+    # util.format_axes(ax)
+    util.add_legend(ax, [l1[0], l2[0]], corner='SE', horizontal=True)
+
+    ax = axes[4,0]
+    l1 = sv_rel_max.plot(ax=ax, label='$s_{V,'+species+',rel,Max}$')
+    l2 = sv_rel_lut.plot(ax=ax, label='$s_{V,'+species+',rel,lut}$')
+    ax.set_title('')
+    ax.set_xlabel('')
+    ax.set_ylabel('$s_{V,'+species+',rel}$\n[J/K/$m^{3}$]')
+    # util.format_axes(ax)
+    util.add_legend(ax, [l1[0], l2[0]], corner='SE', horizontal=True)
+
+    fig.suptitle('Maxwellian Look-up Table')
+
+    return fig, axes
+
+
+def relative_entropy(sc, mode, optdesc, start_date, end_date):
+    '''
+    Plot a Maxwellian Look-Up Table (LUT). If a LUT file
+    is not found, a LUT is created.
+
+    Parameters
+    ----------
+    sc : str
+        MMS spacecraft identifier ('mms1', 'mms2', 'mms3', 'mms4')
+    mode : str
+        Operating mode ('brst', 'srvy', 'fast')
+    optdesc : str
+        Filename optional descriptor ('dis-dist', 'des-dist')
+    start_date, end_date : `datetime.datetime`
+        Start and end of the time interval
+    '''
+    species = optdesc[1]
+
+    # Get the LUT
+    lut_file = database.max_lut_load(sc, mode, optdesc, start_date, end_date)
+    lut = xr.load_dataset(lut_file)
+
+    #
+    #  Measured parameters
+    #
+
+    # Measured distrubtion function
+    f = database.max_lut_precond_f(sc, mode, optdesc, start_date, end_date)
+    
+    # Moments and entropy parameters for the measured distribution
+    n = fpi.density(f)
+    V = fpi.velocity(f, N=n)
+    T = fpi.temperature(f, N=n, V=V)
+    t = ((T[:,0,0] + T[:,1,1] + T[:,2,2]) / 3.0).drop(['t_index_dim1', 't_index_dim2'])
+
+    #
+    #  Optimized equivalent Maxwellian parameters
+    #
+    
+    # Equivalent Maxwellian distribution function
+    opt_lut = database.max_lut_optimize(lut, f, n, t, method='nt')
+
+    #
+    #  Relative velocity space entropy
+    #
+
+    sV_rel_opt = physics.relative_entropy(f, opt_lut['f_M'])
+
+    # Sample interval
+    delta_t = 1.0 / (float(np.diff(sV_rel_opt['time']).mean()) * 1e-9)
+
+    # Gradiated of the relative entropy computed via centered difference
+    d_sV_rel_dt = xr.DataArray(np.gradient(sV_rel_opt / opt_lut['n_M'], delta_t),
+                               dims=('time',),
+                               coords={'time': sV_rel_opt['time']})
+
+    # Increment of the relative energy per particle
+    d_E_rel_dt = 1e-6 * eV2K * opt_lut['t_M'] * d_sV_rel_dt # J/s = W
+
+    #
+    #  Plot
+    #
+    
+    fig, axes = plt.subplots(nrows=3, ncols=1, squeeze=False, figsize=(6.5,5))
+    plt.subplots_adjust(left=0.15, right=0.95, bottom=0.15, top=0.9)
+
+    ax = axes[0,0]
+    sV_rel_opt.plot(ax=ax)
+    ax.set_xlabel('')
+    ax.set_xticklabels([])
+    ax.set_ylabel('$s_{'+species+'V,rel}$\n[J/K/$m^{3}$]')
+
+    ax = axes[1,0]
+    d_sV_rel_dt.plot(ax=ax)
+    ax.set_xlabel('')
+    ax.set_xticklabels([])
+    ax.set_ylabel('$ds_{'+species+'V,rel}/dt$\n[J/K/$m^{3}$/s]')
+    ax = axes[2,0]
+    d_E_rel_dt.plot(ax=ax)
+    ax.set_ylabel('$d\mathcal{E}_{'+species+'V,rel}/dt$\n[W]')
+
+    plt.show()
+
+    

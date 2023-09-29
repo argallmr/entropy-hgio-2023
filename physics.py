@@ -9,7 +9,11 @@ from pymms.data import fpi
 mu0 = c.physical_constants['vacuum mag. permeability']           # permeability of free space
 epsilon0 = c.physical_constants['vacuum electric permittivity']  # permittivity of free space
 q = c.physical_constants['atomic unit of charge']                # elementary charge
-
+kB = c.k # J/K
+eV2J = c.eV
+eV2K = c.value('electron volt-kelvin relationship')
+me = c.m_e
+mp = c.m_p
 
 def convection_efield(v, B):
     '''
@@ -197,6 +201,76 @@ def De_curl(E, B, Ve, R):
     De = J.dot(E_prime, dims='component')
 
     return De
+
+
+def relative_entropy(f, f_M, species='e', E0=100):
+    '''
+    Compute the relative velocity-space entropy
+
+    Parameters
+    f : (N,T,P,E), `xarray.DataArray`
+        The measured distribution with dimensions/coordinates of time (N),
+        polar/theta angle (T), azimuth/theta angle (P), and energy (E)
+    f_M : (N,T,P,E), `xarray.DataArray`
+        An equivalent Maxwellian distribution with dimensions/coordinates of time (N),
+        polar/theta angle (T), azimuth/theta angle (P), and energy (E). It should
+        have the same density and temperature as the measured distribution
+    species : str
+        Particle species represented by the distribution: ('e', 'i')
+    E0 : float
+        Energy (keV) used to normalize the energy bins of the distribution
+    
+    Returns
+    -------
+    sV_rel : (N,), `xarray.DataArray`
+        Relative velocity space entropy [J/K/m^3]
+    '''
+
+    # Integrate over phi and theta
+    #   - Measurement bins with zero counts result in a
+    #     phase space density of 0
+    #   - Photo-electron correction can result in negative
+    #     phase space density.
+    #   - Log of value <= 0 is nan. Avoid be replacing
+    #     with 1 so that log(1) = 0
+    E0 = 100 # keV
+
+    mass = me if species == species else mp
+    sv_rel = f / f_M
+    sv_rel = sv_rel.where(sv_rel > 0, 1)
+    try:
+    # 1e12 converts s^3/cm^6 to s^3/m^6
+        sv_rel = (1e12 * f * np.log(sv_rel)).integrate('phi')
+    except ValueError:
+    # In burst mode, phi is time-dependent
+    #   - Use trapz to explicitly specify which axis is being integrated
+    #   - Expand dimensions of phi so that they are broadcastable
+        sv_rel = np.trapz(1e12 * f * np.log(sv_rel),
+                        f['phi'].expand_dims({'theta': 1, 'energy_index': 1}, axis=(2, 3)),
+                        axis=f.get_axis_num('phi_index'))
+    
+        # trapz returns an ndarray. Convert it back to a DataArray
+        sv_rel = xr.DataArray(sv_rel,
+                            dims=('time', 'theta', 'energy_index'),
+                            coords={'time': f['time'],
+                                    'theta': f['theta'],
+                                    'energy_index': f['energy_index'],
+                                    'U': f['U']})
+
+    # Integrate over theta
+    sv_rel = (np.sin(sv_rel['theta']) * sv_rel).integrate('theta')
+
+    # Integrate over Energy
+    with np.errstate(invalid='ignore', divide='ignore'):
+        y = np.sqrt(sv_rel['U']) / (1 - sv_rel['U'])**(5/2)
+    y = y.where(np.isfinite(y.values), 0)
+
+    coeff = -kB * np.sqrt(2) * (eV2J * E0 / mass)**(3/2)
+    sv_rel = coeff * np.trapz(y * sv_rel, y['U'], axis=y.get_axis_num('energy_index'))
+
+    sv_rel = xr.DataArray(sv_rel, dims='time', coords={'time': f['time']})
+
+    return sv_rel # J/K/m^3
 
 
 def maxwellian_lut(f, n=None, t=None, dims=(100, 100), filename=None):

@@ -44,3 +44,33 @@ t1 = dt.datetime(2017, 7, 11, 22, 34, 5)
 # Create the plot
 plots.max_lut('mms3', 'brst', 'des-dist', t0, t1)
 ```
+
+## Plot Errors in the Maxwellian Look-Up Table
+Determine the error between the measured, equivalent maxwellian, and optimized equivalent Maxwellian distribution fuctions. **Note**: this will take a minute or two.
+
+```python
+import datetime as dt
+import plots
+
+# Define the time interval
+t0 = dt.datetime(2017, 7, 11, 22, 34, 0)
+t1 = dt.datetime(2017, 7, 11, 22, 34, 5)
+
+# Create the plot
+plots.max_lut_error('mms3', 'brst', 'des-dist', t0, t1)
+```
+
+## Relative Entropy and Change in Internal Energy
+Determine the error between the measured, equivalent maxwellian, and optimized equivalent Maxwellian distribution fuctions. **Note**: this will take a minute or two.
+
+```python
+import datetime as dt
+import plots
+
+# Define the time interval
+t0 = dt.datetime(2017, 7, 11, 22, 34, 0)
+t1 = dt.datetime(2017, 7, 11, 22, 34, 5)
+
+# Create the plot
+plots.relative_entropy('mms3', 'brst', 'des-dist', t0, t1)
+```
