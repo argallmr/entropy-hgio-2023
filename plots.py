@@ -15,9 +15,9 @@ import database, physics
 #   - Tools are not in the `pip install pymms` library
 #   - Change directories so they are discoverable
 import os
-os.chdir('/Users/argall/Documents/Python/pymms/examples/')
+#os.chdir('/Users/argall/Documents/Python/pymms/examples/')
 # os.chdir(r"D:\uni UNH\mms\pymms\examples\\")
-# os.chdir('/Users/krmhanieh/Documents/GitHub/pymms/examples')
+os.chdir('/Users/krmhanieh/Documents/GitHub/pymms/examples')
 import util
 
 
