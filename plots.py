@@ -16,7 +16,7 @@ import database, physics
 #   - Change directories so they are discoverable
 import os
 #os.chdir('/Users/argall/Documents/Python/pymms/examples/')
-# os.chdir(r"D:\uni UNH\mms\pymms\examples\\")
+#os.chdir(r"D:\uni UNH\mms\pymms\examples\\")
 os.chdir('/Users/krmhanieh/Documents/GitHub/pymms/examples')
 import util
 
