@@ -435,15 +435,13 @@ def resample(data, t0, t1, dt_out, extrapolate=False, method='nearest'):
 
     # Align the time
     #   - Same sample rate but different time stamps
-    if (data['dt_plus'] == np.timedelta64(dt_out)).all():
-        
-        # Align the time stamps
-        if (len(data['time']) != len(t_out)) or (data['time'] != t_out).any():
-            data = interp_over_gaps(data, t_out[:-1])
+    #   - Assumes sample time is at beginning of sample interval (dt_minus = 0)
+    #   - Want to bring the ratio to 1
+    dt_ratio = np.timedelta64(dt_out) / data['dt_plus']
     
-    # Upsample
+    # Upsample / Interpolate
     #   - Less than two samples per target sampling interval
-    elif (data['dt_plus'] > np.timedelta64(dt_out)).any():
+    if dt_ratio <= 2:
         
         # Repeat values
         if method == 'repeat':
@@ -464,7 +462,7 @@ def resample(data, t0, t1, dt_out, extrapolate=False, method='nearest'):
 
     # Downsample
     #   - Two or more samples per target sampling interval
-    elif (data['dt_plus'] <= (0.5 * np.timedelta64(dt_out))).any():
+    elif dt_ratio > 2:
         if isinstance(data, xr.DataArray):
             func = binned_avg
         else:
@@ -475,3 +473,131 @@ def resample(data, t0, t1, dt_out, extrapolate=False, method='nearest'):
 
     # Suppress annoying xarray warning about converting to ns precision by doing the conversion ourselves
     return data.assign_coords({'dt_plus': dt_out.astype('timedelta64[ns]')})
+
+
+def smooth(data, n, step=1, fs=None, end_points=None):
+    '''
+    Smooth an array.
+
+    Parameters
+    ----------
+    data : (N,...), `xarray.DataArray`
+        Data to be smoothed. Smoothing is performed along the "time" dimension
+    n : int or float
+        Number of points to smooth. If a float, this is the time interval over
+        which to smooth
+    step : int
+        Number of points to skip between smoothing windows
+    fs : float
+        Sample rate. Used if `n` is a time interval.
+    end_points : str
+        How to treat end points. (None, "copy", "wrap", "repeat")
+          * None: Skip over end points (output is 0)
+          * copy: Copy points from the input array
+          * wrap: Wrap the smoothing window to the other end of the array
+          * repeat: Repeat the first or last data point
+    
+    Returns
+    -------
+    out : (N, ...), `xarray.DataArray`
+        The smoothed input array
+    '''
+    if isinstance(n, float) or isinstance(step, float):
+        # Calculate the sample rate
+        if fs is None:
+            fs = 1.0 / (np.diff(data['time']).mean().astype(float) * 1e-9)
+    
+    # Number of points in the smoothing window is given as a time interval
+    if isinstance(n, float):
+        n = np.int64(np.round(n * fs))
+
+    # Number of points to shift is given as a time interval
+    if isinstance(step, float):
+        step = np.int64(np.round(step * fs))
+    
+    # Need to average at least two points
+    if n < 2:
+        raise ValueError('Too few puts (n={0}). Must be at least 2.'.format(n))
+    
+    # Need to shift by at least one point
+    if step < 1:
+        raise ValueError('Too few points to shift (step={0}). '
+                         'Must be at least 1.'.format(step))
+    
+    # Number of windows that fit within the data
+    N = len(data)
+    N_out = int(np.floor((N-n)/step + 1))
+
+    # Allocate memory to the output array
+    out = np.zeros((N_out, *data.shape[1:]), dtype=data.dtype)
+    t_out = np.zeros(N_out, dtype='datetime64[ns]')
+
+    # Initial loop conditions
+    i0 = 0
+    i1 = n
+    # idx = np.int64((i0 + i1) / 2)
+    idx = 0
+    while i1 <= N:
+        out[idx,...] = data[i0:i1,...].mean(dim='time')
+        t_out[idx] = data['time'][i0:i1].mean(dim='time').item()
+
+        i0 += step
+        i1 += step
+        idx += 1
+    
+    # Turn into a DataArray
+    out = (xr.DataArray(out,
+                        dims=('time', *data.dims[1:]),
+                        coords={key: data[key] for key in data.coords if key != 'time'})
+           .assign_coords({'time': t_out})
+           )
+    
+    '''
+    imid0 = np.int64(n / 2)
+    imid1 = N - (n - imid0)
+    i0 = -imid0
+    i1 = i0 + n
+    for ii in range(N):
+
+        # Skip the end points (copied later)
+        if end_points in (None, 'copy'):
+            if (i0 >= 0) & (i1 < N):
+                idx = slice(i0, i1)
+            else:
+                i0 += step
+                i1 += step
+                continue
+        
+        # Repeat the first/last point in the array
+        elif end_points == 'repeat':
+            if i0 < 0:
+                idx = np.append(np.repeat(0, -i0), np.arange(0, i1))
+            elif i1 >= N:
+                idx = np.append(np.arange(i0, N), np.repeat(-1, i1-N))
+            else:
+                idx = slice(i0, i1)
+        
+        # Wrap around to the beginning of the array
+        elif end_points == 'wrap':
+            if i0 < 0:
+                idx = np.append(np.arange(i0, 0), np.arange(i1))
+            elif i1 >= N:
+                print(i0, N, 0, i1-N)
+                idx = np.append(np.arange(i0, N), np.arange(0, i1-N))
+            else:
+                idx = slice(i0, i1)
+        
+        else:
+            raise ValueError('end_points must be in (None, "repeat", "wrap", "copy").')
+
+        out[ii,...] = data[idx,...].mean(dim='time')
+        i0 += step
+        i1 += step
+    
+    # Copy values to end-points
+    if end_points == 'copy':
+        out[0:imid0,...] = data[0:imid0,...]
+        out[imid1:,...] = data[imid1:,...]
+    '''
+
+    return out

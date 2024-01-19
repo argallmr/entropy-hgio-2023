@@ -6,6 +6,8 @@ from pathlib import Path
 
 from pymms.data import fpi
 
+import database
+
 mu0 = c.physical_constants['vacuum mag. permeability']           # permeability of free space
 epsilon0 = c.physical_constants['vacuum electric permittivity']  # permittivity of free space
 q = c.physical_constants['atomic unit of charge']                # elementary charge
@@ -162,6 +164,66 @@ def De_moms(E, B, n, Vi, Ve):
     De = J.dot(E_prime, dims='component')
 
     return De
+
+def relative_energy_d_dt(sc, mode, optdesc, start_date, end_date):
+    '''
+    Calculate the change in relative energy per particle
+
+    Parameters
+    ----------
+    sc : str
+        MMS spacecraft identifier ('mms1', 'mms2', 'mms3', 'mms4')
+    mode : str
+        Operating mode ('brst', 'srvy', 'fast')
+    optdesc : str
+        Filename optional descriptor ('dis-dist', 'des-dist')
+    start_date, end_date : `datetime.datetime`
+        Start and end of the time interval
+    '''
+    species = optdesc[1]
+
+    # Get the LUT
+    lut_file = database.max_lut_load(sc, mode, optdesc, start_date, end_date)
+    lut = xr.load_dataset(lut_file)
+
+    #
+    #  Measured parameters
+    #
+
+    # Measured distrubtion function
+    f = database.max_lut_precond_f(sc, mode, optdesc, start_date, end_date)
+    
+    # Moments and entropy parameters for the measured distribution
+    n = fpi.density(f)
+    V = fpi.velocity(f, N=n)
+    T = fpi.temperature(f, N=n, V=V)
+    t = ((T[:,0,0] + T[:,1,1] + T[:,2,2]) / 3.0).drop(['t_index_dim1', 't_index_dim2'])
+
+    #
+    #  Optimized equivalent Maxwellian parameters
+    #
+    
+    # Equivalent Maxwellian distribution function
+    opt_lut = database.max_lut_optimize(lut, f, n, t, method='nt')
+
+    #
+    #  Relative velocity space entropy
+    #
+
+    sV_rel_opt = relative_entropy(f, opt_lut['f_M'])
+
+    # Sample interval
+    delta_t = 1.0 / (float(np.diff(sV_rel_opt['time']).mean()) * 1e-9)
+
+    # Gradiated of the relative entropy computed via centered difference
+    d_sV_rel_dt = xr.DataArray(np.gradient(sV_rel_opt / opt_lut['n_M'], delta_t),
+                               dims=('time',),
+                               coords={'time': sV_rel_opt['time']})
+
+    # Increment of the relative energy per particle
+    d_E_rel_dt = 1e-6 * eV2K * opt_lut['t_M'] * d_sV_rel_dt # J/s = W
+
+    return d_E_rel_dt # nW/m^3
 
 
 def De_curl(E, B, Ve, R):
@@ -361,7 +423,7 @@ def pressure_dilatation(R, U, p):
     divU = divergence(k, U)
 
     # Take the barycentric average of the scalar pressure
-    p_bary = (p['p1'] + p['p2'] + p['p3'] + p['p4']) / 4
+    p_bary = barycentric_avg(p)
 
     # p-Theta: Pressure dilatation
     p_theta = p_bary * divU
@@ -418,14 +480,17 @@ def devoriak_pressure(R, U, p, P):
         Devoriak pressure in units of [nW/m^{3}]
     '''
 
+    # Reciprocal Vectors
+    k = recip_vec(R)
+
     # Gradient of the bulk velocity
-    gradU = gradient(R.rename(component='comp1'), U.rename(component='comp2'))
+    gradU = gradient(k.rename(component='comp1'), U.rename(component='comp2'))
 
     # Theta - divergence of the bulk velocity
-    divU = divergence(R, U)
+    divU = divergence(k, U)
 
     # Barycentric scalar pressure
-    p_bary = (p['p1'] + p['p2'] + p['p3'] + p['p4']) / 4
+    p_bary = barycentric_avg(p)
 
     # D - the devoriak pressure
     D = (0.5 * (gradU + gradU.transpose('time', 'comp2', 'comp1').rename(comp2='comp1', comp1='comp2'))

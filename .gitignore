@@ -1,3 +1,6 @@
+# MAC files
+.DS_Store
+
 # Taken from https://github.com/github/gitignore/blob/main/Python.gitignore
 #   - CC0 license
 

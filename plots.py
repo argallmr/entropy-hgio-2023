@@ -9,35 +9,116 @@ from pymms.data import fpi
 from pymms import config
 data_root = Path(config['data_root'])
 
-import database, physics
+import os
+os.chdir('/Users/argall/Documents/Python/projects/entropy-hgio-2023/')
+import database, physics, tools
 
 # For now, take the plotting tools from pymms
 #   - Tools are not in the `pip install pymms` library
 #   - Change directories so they are discoverable
-import os
 os.chdir('/Users/argall/Documents/Python/pymms/examples/')
 # os.chdir(r"D:\uni UNH\mms\pymms\examples\\")
 # os.chdir('/Users/krmhanieh/Documents/GitHub/pymms/examples')
 import util
 
-
 eV2K = c.value('electron volt-kelvin relationship')
 
 
-data_path = Path(config['dropbox_root'])
+def overview(sc, t0, t1, mode='srvy'):
 
-def dissipation_measures(t0, t1):
-
-    # Create a file name
-    filename = '_'.join(('mms', 'hgio',
-                         t0.strftime('%Y%m%d%_H%M%S'),
-                         t1.strftime('%Y%m%d%_H%M%S')))
-    file_path = (data_path / filename).with_suffix('.nc')
-    if ~file_path.exists():
-        file_path = database.load_data(t0, t1)
+    # Create the file name
+    fname = database.filename(mode, t0, t1)
 
     # Load the data
-    data = xr.load_dataset(file_path)
+    data = xr.load_dataset(fname)
+
+    RE = 6378 # km
+    sc = sc[3]
+
+    fig, axes = plt.subplots(nrows=7, ncols=1, squeeze=False, figsize=(8,7))
+
+    # Magnetic Field
+    ax = axes[0,0]
+    data['B'+sc][:,0].plot(ax=ax, label='Bx', color='blue')
+    data['B'+sc][:,1].plot(ax=ax, label='By', color='green')
+    data['B'+sc][:,2].plot(ax=ax, label='Bz', color='red')
+    ax.set_title('')
+    ax.set_xlabel('')
+    ax.set_xticklabels([])
+    ax.set_ylabel('B\n[nT]')
+    ax.legend()
+
+    # Electric Field
+    ax = axes[1,0]
+    data['E'+sc][:,0].plot(ax=ax, label='Ex', color='blue')
+    data['E'+sc][:,1].plot(ax=ax, label='Ey', color='green')
+    data['E'+sc][:,2].plot(ax=ax, label='Ez', color='red')
+    ax.set_title('')
+    ax.set_xlabel('')
+    ax.set_xticklabels([])
+    ax.set_ylabel('E\n[mV/m]')
+    ax.legend()
+
+    # Plasma Density
+    ax = axes[2,0]
+    data['ni'+sc].plot(ax=ax, label='ni', color='blue')
+    data['ne'+sc].plot(ax=ax, label='ne', color='red')
+    ax.set_title('')
+    ax.set_xlabel('')
+    ax.set_xticklabels([])
+    ax.set_ylabel('n\n[$cm^{-3}$]')
+    ax.legend()
+
+    # Ion Velocity
+    ax = axes[3,0]
+    data['Vi'+sc][:,0].plot(ax=ax, label='Vx', color='blue')
+    data['Vi'+sc][:,1].plot(ax=ax, label='Vy', color='green')
+    data['Vi'+sc][:,2].plot(ax=ax, label='Vz', color='red')
+    ax.set_title('')
+    ax.set_xlabel('')
+    ax.set_xticklabels([])
+    ax.set_ylabel('Vi\n[$km/s$]')
+    ax.legend()
+
+    # Electron Velocity
+    ax = axes[4,0]
+    data['Ve'+sc][:,0].plot(ax=ax, label='Vx', color='blue')
+    data['Ve'+sc][:,1].plot(ax=ax, label='Vy', color='green')
+    data['Ve'+sc][:,2].plot(ax=ax, label='Vz', color='red')
+    ax.set_title('')
+    ax.set_xlabel('')
+    ax.set_xticklabels([])
+    ax.set_ylabel('Ve\n[$km/s$]')
+    ax.legend()
+
+    # Scalar Pressure
+    ax = axes[5,0]
+    data['pi'+sc].plot(ax=ax, label='pi', color='blue')
+    data['pe'+sc].plot(ax=ax, label='pe', color='red')
+    ax.set_title('')
+    ax.set_xlabel('')
+    ax.set_xticklabels([])
+    ax.set_ylabel('pe\n[nPa]')
+    ax.legend()
+
+    # Location
+    ax = axes[6,0]
+    (data['r'+sc][:,0]/RE).plot(ax=ax, label='x', color='blue')
+    (data['r'+sc][:,1]/RE).plot(ax=ax, label='y', color='green')
+    (data['r'+sc][:,2]/RE).plot(ax=ax, label='z', color='red')
+    ax.set_title('')
+    ax.set_ylabel('r\n[$R_{E}$]')
+    ax.legend()
+
+    plt.show()
+
+
+def dissipation_measures(t0, t1, mode='srvy'):
+
+    fname = database.filename(mode, t0, t1)
+
+    # Load the data
+    data = xr.load_dataset(fname)
     
     # Calculate electron frame dissipation measure
     De_moms = xr.Dataset()
@@ -52,19 +133,74 @@ def dissipation_measures(t0, t1):
                               data[['Ve1', 'Ve2', 'Ve3', 'Ve4']],
                               data[['r1', 'r2', 'r3', 'r4']])
 
+    # Calculate p-theta
+    ptheta = physics.pressure_dilatation(data[['r1', 'r2', 'r3', 'r4']],
+                                         data[['Ve1', 'Ve2', 'Ve3', 'Ve4']],
+                                         data[['pe1', 'pe2', 'pe3', 'pe4']].rename({'pe1': 'p1', 'pe2': 'p2', 'pe3': 'p3', 'pe4': 'p4'}),
+                                         )
+
+    # Calculate Pi-D
+    PiD = physics.PiD(data[['r1', 'r2', 'r3', 'r4']],
+                      data[['Ve1', 'Ve2', 'Ve3', 'Ve4']],
+                      data[['pe1', 'pe2', 'pe3', 'pe4']].rename({'pe1': 'p1',
+                                                                 'pe2': 'p2',
+                                                                 'pe3': 'p3',
+                                                                 'pe4': 'p4'}),
+                      data[['Pe1', 'Pe2', 'Pe3', 'Pe4']].rename({'Pe1': 'P1',
+                                                                 'Pe2': 'P2',
+                                                                 'Pe3': 'P3',
+                                                                 'Pe4': 'P4'}))
+
+    # Change in relative energy
+    d_E_rel_dt = physics.relative_energy_d_dt('mms1', mode, 'des-dist', t0, t1)
+
+    # Smooth the data
+    PiD = tools.smooth(PiD, 0.5)
+    ptheta = tools.smooth(ptheta, 0.5)
+    d_E_rel_dt = tools.smooth(d_E_rel_dt, 0.5)
+
     # Plot the data
-    fig, axes = plt.subplots(nrows=1, ncols=1, squeeze=False)
+    fig, axes = plt.subplots(nrows=4, ncols=1, squeeze=False)
+    plt.subplots_adjust(left=0.15, right=0.88, top=0.98, bottom=0.15)
     
     # Electron Frame Dissipation Measure
     ax = axes[0,0]
     De_moms['De1'].plot(ax=ax, color='Black', label='MMS1')
-    De_moms['De2'].plot(ax=ax, color='Blue', label='MMS1')
-    De_moms['De3'].plot(ax=ax, color='Green', label='MMS1')
-    De_moms['De4'].plot(ax=ax, color='Red', label='MMS1')
+    De_moms['De2'].plot(ax=ax, color='Blue', label='MMS2')
+    De_moms['De3'].plot(ax=ax, color='Green', label='MMS3')
+    De_moms['De4'].plot(ax=ax, color='Red', label='MMS4')
     De_curl.plot(ax=ax, color='magenta', label='Curl')
     ax.set_title('')
-    ax.set_ylabel('De [$nW/m^{3}$]')
-    ax.legend()
+    ax.set_xlabel('')
+    ax.set_xticklabels([])
+    ax.set_ylabel('De\n[$nW/m^{3}$]')
+    util.add_legend(ax, ax.get_lines(), corner='NE', outside=True)
+    
+    # p-theta
+    ax = axes[1,0]
+    ptheta.plot(ax=ax)
+    ax.set_title('')
+    ax.set_xlabel('')
+    ax.set_xticklabels([])
+    ax.set_ylabel('$p\\theta$\n[$nW/m^{3}$]')
+    
+    # Pi-D
+    ax = axes[2,0]
+    PiD.plot(ax=ax)
+    ax.set_title('')
+    ax.set_ylabel('$\Pi-D$\n[$nW/m^{3}$]')
+    ax.set_xlabel('')
+    ax.set_xticklabels([])
+
+    # d/dt E_rel
+    ax = axes[3,0]
+    d_E_rel_dt.plot(ax=ax)
+    ax.set_title('')
+    ax.set_xlabel('')
+    ax.set_ylabel('$n dE_{rel}/dt$\n[$nW/m^{3}$]')
+    util.format_axes(ax)
+
+    plt.setp(axes, xlim=(t0, t1))
 
     plt.show()
 

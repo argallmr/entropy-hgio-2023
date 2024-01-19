@@ -11,7 +11,32 @@ import tools, physics
 lut_dir = Path('~/data/fpi_fmax_lookup_tables/').expanduser()
 output_dir = Path(config['dropbox_root'])
 
-def load_data(t0, t1, dt_out=np.timedelta64(30, 'ms')):
+def filename(mode, t0, t1):
+    '''
+    Create a filename for database files.
+
+    Parameters
+    ----------
+    mode : str
+        Data rate mode (srvy, brst)
+    t0, t1 : `datetime.datetime`
+        Start and end of the time of the data interval
+    
+    Returns
+    -------
+    file_path : path-like
+        Full file path.
+    '''
+    
+    # Create a file name
+    filename = '_'.join(('mms', 'hgio', mode,
+                         t0.strftime('%Y%m%d%_H%M%S'),
+                         t1.strftime('%Y%m%d%_H%M%S')))
+    file_path = (output_dir / filename).with_suffix('.nc')
+    
+    return file_path
+
+def load_data(t0, t1, mode='brst', dt_out=np.timedelta64(30, 'ms')):
     '''
     Load MMS data for a given time interval. Data loaded are the
       * MEC - spacecraft position
@@ -26,39 +51,38 @@ def load_data(t0, t1, dt_out=np.timedelta64(30, 'ms')):
     ----------
     t0, t1 : `datetime.datetime`
         Start and end of the time interval to be loaded
+    mode : str
+        Data rate mode (srvy | brst)
     dt_out, `numpy.timedelta64`
         Sample interval to which all data is resampled. Default is the 30ms
         sample interval of DES
     
     Output
     ------
-    filepath : `pathlib.Path`
+    fname : `pathlib.Path`
         Path to netCDF file containing the data.
     '''
 
     # Get the data from each spacecraft
-    mec_data = get_data('mec', t0, t1, dt_out)
-    fgm_data = get_data('fgm', t0, t1, dt_out)
-    edp_data = get_data('edp', t0, t1, dt_out)
-    des_data = get_data('des', t0, t1, dt_out)
-    dis_data = get_data('dis', t0, t1, dt_out)
+    mec_data = get_data('mec', mode, t0, t1, dt_out)
+    fgm_data = get_data('fgm', mode, t0, t1, dt_out)
+    edp_data = get_data('edp', mode, t0, t1, dt_out)
+    des_data = get_data('des', mode, t0, t1, dt_out)
+    dis_data = get_data('dis', mode, t0, t1, dt_out)
 
     # Combine into a single dataset
     data = xr.merge([mec_data, fgm_data, edp_data, des_data, dis_data])
 
-    # Create a file name
-    filename = '_'.join(('mms', 'hgio',
-                         t0.strftime('%Y%m%d%_H%M%S'),
-                         t1.strftime('%Y%m%d%_H%M%S')))
-    filepath = (output_dir / filename).with_suffix('.nc')
+    # Create an output file name
+    fname = filename(mode, t0, t1)
 
     # Save to data file
-    data.to_netcdf(filepath)
+    data.to_netcdf(fname)
 
-    return filepath
+    return fname
 
 
-def get_data(instr, t0, t1, dt_out=np.timedelta64(30, 'ms')):
+def get_data(instr, mode, t0, t1, dt_out=np.timedelta64(30, 'ms')):
     '''
     Get data from a single instrument. Data coordinates and time cadence
     are standardized.
@@ -68,6 +92,8 @@ def get_data(instr, t0, t1, dt_out=np.timedelta64(30, 'ms')):
     instr : str
         Name of the instrument for which to load data
         ('fgm', 'edp', 'des', 'dis', 'mec')
+    mode : str
+        Data rate mode (srvy | brst)
     t0, t1 : `datetime.datetime`
         Start and end of the time interval to be loaded
     dt_out, `numpy.timedelta64`
@@ -90,6 +116,7 @@ def get_data(instr, t0, t1, dt_out=np.timedelta64(30, 'ms')):
         extrapolate = True
     elif instr == 'fgm':
         func = get_fgm_data
+        method = 'linear'
     elif instr == 'edp':
         func = get_edp_data
         method = 'nearest' # Upsample 31.25ms to 30ms
@@ -113,7 +140,7 @@ def get_data(instr, t0, t1, dt_out=np.timedelta64(30, 'ms')):
     # Get the data from each spacecraft
     for sc in spacecraft:
         # Load the data
-        data = func(sc, t0, t1)
+        data = func(sc, mode, t0, t1)
 
         # Resample the data to a common time stamp
         data = tools.resample(data, t0, t1, dt_out,
@@ -128,7 +155,7 @@ def get_data(instr, t0, t1, dt_out=np.timedelta64(30, 'ms')):
     return ds
 
 
-def get_mec_data(sc, t0, t1):
+def get_mec_data(sc, mode, t0, t1):
     '''
     Get MEC data for a given spacecraft and time interval.
 
@@ -137,6 +164,8 @@ def get_mec_data(sc, t0, t1):
     sc : str
         The spacecraft for which data is to be loaded
         ('mms1', 'mms2', 'mms3', 'mms4')
+    mode : str
+        Data rate mode (srvy | brst)
     t0, t1 : `datetime.datetime`
         Start and end of the time interval to be loaded
     
@@ -145,6 +174,8 @@ def get_mec_data(sc, t0, t1):
     r_data : `xarray.Dataset`
         The spacecraft position in GSE coordinates
     '''
+    if mode != 'srvy':
+        mode = 'srvy'
 
     # Make sure we get at least two samples to enable linear interpolation.
     #   - Sample rate is once per 30 sec. M
@@ -171,7 +202,7 @@ def get_mec_data(sc, t0, t1):
 
     return r_data
 
-def get_fgm_data(sc, t0, t1):
+def get_fgm_data(sc, mode, t0, t1):
     '''
     Get FGM data for a given spacecraft and time interval.
 
@@ -180,6 +211,8 @@ def get_fgm_data(sc, t0, t1):
     sc : str
         The spacecraft for which data is to be loaded
         ('mms1', 'mms2', 'mms3', 'mms4')
+    mode : str
+        Data rate mode (srvy | brst)
     t0, t1 : `datetime.datetime`
         Start and end of the time interval to be loaded
     
@@ -192,7 +225,7 @@ def get_fgm_data(sc, t0, t1):
     # FGM
     #   - sampled at 4 S/s in survey mode and 128 S/s in burst mode.
     #   - Select burst mode for its higher time resolution.
-    b_data = fgm.load_data(sc=sc, mode='brst', start_date=t0, end_date=t1)
+    b_data = fgm.load_data(sc=sc, mode=mode, start_date=t0, end_date=t1)
 
     # Select the magnetic field in GSE coordinates
     #   - Remove the total magnetic field
@@ -212,7 +245,7 @@ def get_fgm_data(sc, t0, t1):
     return b_data
 
 
-def get_edp_data(sc, t0, t1):
+def get_edp_data(sc, mode, t0, t1):
     '''
     Get EDP data for a given spacecraft and time interval.
 
@@ -221,6 +254,8 @@ def get_edp_data(sc, t0, t1):
     sc : str
         The spacecraft for which data is to be loaded
         ('mms1', 'mms2', 'mms3', 'mms4')
+    mode : str
+        Data rate mode (srvy | brst)
     t0, t1 : `datetime.datetime`
         Start and end of the time interval to be loaded
     
@@ -230,10 +265,15 @@ def get_edp_data(sc, t0, t1):
         The vector electric field in GSE coordinates
     '''
 
+    # The data will be interpolated to the DES time scale
+    #   - Only use survey data
+    if mode != 'srvy':
+        mode = 'srvy'
+
     # EDP
     #   - data rate is 32 S/s in survey mode and 4098 S/s in burst mode.
     #   - Since survey mode sampling rate is closer to the FGM burst mode sample rate, we will load EDP survey data.
-    e_data = edp.load_data(sc=sc, mode='srvy', start_date=t0, end_date=t1)
+    e_data = edp.load_data(sc=sc, mode=mode, start_date=t0, end_date=t1)
 
     # Select the electric field in GSE coordinates
     #   - Standardize components
@@ -253,7 +293,7 @@ def get_edp_data(sc, t0, t1):
     return e_data
 
 
-def get_des_data(sc, t0, t1):
+def get_des_data(sc, mode, t0, t1):
     '''
     Get DES data for a given spacecraft and time interval.
 
@@ -262,6 +302,8 @@ def get_des_data(sc, t0, t1):
     sc : str
         The spacecraft for which data is to be loaded
         ('mms1', 'mms2', 'mms3', 'mms4')
+    mode : str
+        Data rate mode (srvy | brst)
     t0, t1 : `datetime.datetime`
         Start and end of the time interval to be loaded
     
@@ -272,7 +314,7 @@ def get_des_data(sc, t0, t1):
     '''
 
     # DES
-    des_data = fpi.load_moms(sc='mms1', mode='brst', optdesc='des-moms',
+    des_data = fpi.load_moms(sc=sc, mode=mode, optdesc='des-moms',
                              start_date=t0, end_date=t1, center_times=False)
 
     # Select the velocity
@@ -303,7 +345,7 @@ def get_des_data(sc, t0, t1):
             )
 
 
-def get_dis_data(sc, t0, t1):
+def get_dis_data(sc, mode, t0, t1):
     '''
     Get DIS data for a given spacecraft and time interval.
 
@@ -322,7 +364,7 @@ def get_dis_data(sc, t0, t1):
     '''
 
     # DIS
-    dis_data = fpi.load_moms(sc='mms1', mode='brst', optdesc='dis-moms',
+    dis_data = fpi.load_moms(sc=sc, mode=mode, optdesc='dis-moms',
                              start_date=t0, end_date=t1, center_times=False)
 
     # Select the velocity
