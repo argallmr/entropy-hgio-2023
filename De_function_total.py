@@ -31,7 +31,7 @@ def curl(K, V):
 
 
 def De_total(sc,mode,species,t0,t1):
- #   optdesc = 'd{0}s-moms'.format(species)
+    optdesc = 'd{0}s-moms'.format(species)
     #should it be brst or srvy?
     data = fpi.load_moms(sc=sc, mode=mode, optdesc=optdesc, start_date=t0, end_date=t1)
     data['velocity']
