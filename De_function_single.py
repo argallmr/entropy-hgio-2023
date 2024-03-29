@@ -43,7 +43,7 @@ def De_single(sc,mode,species,t0,t1):
 #e['E_GSE']
 
         def curl(K, V):
-        curl = 0
+                curl = 0
     
                 for k_name, v_name in zip(K, V):
                 k = K[k_name]
