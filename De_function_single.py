@@ -46,9 +46,9 @@ def De_single(sc,mode,species,t0,t1):
                 curl = 0
     
                 for k_name, v_name in zip(K, V):
-                k = K[k_name]
-                v = V[v_name]
-                curl += xr.concat([k[:,1]*v[:,2] - k[:,2]*v[:,1],
+                        k = K[k_name]
+                        v = V[v_name]
+                        curl += xr.concat([k[:,1]*v[:,2] - k[:,2]*v[:,1],
                            k[:,2]*v[:,0] - k[:,0]*v[:,2],
                            k[:,0]*v[:,1] - k[:,1]*v[:,0]], dim='component').transpose()
     
