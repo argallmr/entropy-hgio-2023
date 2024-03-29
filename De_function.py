@@ -112,7 +112,7 @@ def De_total(sc,mode,species,t0,t1):
     ax.set_ylabel('Y-axis')
     ax.set_title('Pcolormesh Plot')
 
-    plt.show()
+  #  plt.show()
 
     B['B1'] #(same as D)
 
@@ -227,7 +227,7 @@ def De_single(sc,mode,species,t0,t1):
     ax.set_ylabel('De [$\\mu A/m^{2}$]')
     ax.legend()
 
-plt.show()
+       # plt.show()
 #D=D.to_array()
 
 #D=D.T
