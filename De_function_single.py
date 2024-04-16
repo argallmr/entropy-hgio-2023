@@ -84,7 +84,7 @@ def De_single(sc,mode,species,t0,t1):
         ax.set_xticklabels([''])
         ax.set_ylabel('De [$\\mu A/m^{2}$]')
         ax.legend()
-        plt.figure(figsize=(7, 6))
+        plt.figure(figsize=(7, 2))
        # plt.show()
 #D=D.to_array()
 
