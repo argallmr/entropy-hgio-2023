@@ -72,7 +72,7 @@ def De_single(sc,mode,species,t0,t1):
 
         D #(just shows how the data looks like)
 
-        fig, axes = plt.subplots(nrows=1, ncols=1, squeeze=False)
+        fig, axes = plt.subplots(nrows=1, ncols=1, squeeze=False, figsize=(7, 2))
          
 
         ax = axes[0,0]
