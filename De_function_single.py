@@ -73,7 +73,7 @@ def De_single(sc,mode,species,t0,t1):
         D #(just shows how the data looks like)
 
         fig, axes = plt.subplots(nrows=1, ncols=1, squeeze=False)
-
+         
 
         ax = axes[0,0]
         D.loc[:,'x'].plot(ax=ax, label='x')
@@ -84,7 +84,7 @@ def De_single(sc,mode,species,t0,t1):
         ax.set_xticklabels([''])
         ax.set_ylabel('De [$\\mu A/m^{2}$]')
         ax.legend()
-        
+        plt.figure(figsize=(7, 6))
        # plt.show()
 #D=D.to_array()
 
