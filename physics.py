@@ -425,7 +425,7 @@ def devoriak_pressure(R, U, p, P):
     #i added this
     #k=recip_vec(R)
     # Theta - divergence of the bulk velocity
-    divU = divergence(R.rename({'component': 'comp1'}), U.rename(component='comp2'))
+    divU = divergence(R, U))
 
     # Barycentric scalar pressure
     p_bary = (p['p1'] + p['p2'] + p['p3'] + p['p4']) / 4
