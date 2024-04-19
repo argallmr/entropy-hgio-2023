@@ -119,7 +119,7 @@ def charge_density(R, E):
     # Calculate the divergence
     divE = divergence(k.rename({'component': 'comp1'}),
                              E,
-                             dim='comp1').rename({'comp2': 'component'}))
+                             dim='comp1').rename({'comp2': 'component'})
 
     # Charge density
     n_rho = 1e-12 * epsilon0[0] * divE / q[0]
