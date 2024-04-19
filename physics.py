@@ -132,7 +132,7 @@ def charge_density(R, E):
     return n_rho
 
 
-def De_moms(E, B, n, Vi, Ve,des_mms):
+def De_moms(E, B, n, Vi, Ve):
     '''
     Calculate the electron frame dissipation measure using data from a single
     spacecraft. This uses the plasma moments to calculate the current density.
