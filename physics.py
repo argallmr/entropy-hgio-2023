@@ -44,8 +44,8 @@ def convection_efield(Ue, B, des_mms):
                                      (Ue[:, 0] * B[:, 1] - Ue[:, 1] * B[:, 0])], axis=1)
     
     # Create the DataArray for Ec
-    Ec = xr.DataArray(Ec_components, dims=('time', 'comp1'),
-                      coords={'time': des_mms['time'], 'comp1': ['x', 'y', 'z']})
+    Ec = xr.DataArray(Ec_components, dims=('time', 'component'),
+                      coords={'time': des_mms['time'], 'component': ['x', 'y', 'z']})
 
     return Ec
 
