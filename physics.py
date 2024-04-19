@@ -117,9 +117,7 @@ def charge_density(R, E):
     k = recip_vec(R)
 
     # Calculate the divergence
-    divE = divergence(k.rename({'component': 'comp1'}),
-                             E,
-                             dim='comp1')
+    divE = divergence(k, E)
 
     # Charge density
     n_rho = 1e-12 * epsilon0[0] * divE / q[0]
@@ -428,7 +426,7 @@ def devoriak_pressure(R, U, p, P):
     k=recip_vec(R)
     # Theta - divergence of the bulk velocity
     divU = divergence(k.rename({'component': 'comp1'}),
-                             U,
+                             U.rename(component='comp2'),
                              dim='comp1')
 #rename({'component': 'comp1'}),
  #                            n_UiUi_UeUe,
