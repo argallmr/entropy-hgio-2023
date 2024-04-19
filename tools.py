@@ -208,9 +208,9 @@ def divergence(K, V, dim='component'):
     for k_name, v_name in zip(K, V):
         k = K[k_name]
         v = V[v_name]
-        div += k.dot(v, dim=dim) #gave me the error: TypeError: 
+        #div += k.dot(v, dim=dim) #gave me the error: TypeError: 
         #DataArray.dot() got an unexpected keyword argument 'dim'
-        #div += (k * v).sum(dim=dim)
+        div += (k * v).sum(dim=dim)
     return div
 
 
