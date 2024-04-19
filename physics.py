@@ -15,7 +15,7 @@ eV2K = c.value('electron volt-kelvin relationship')
 me = c.m_e
 mp = c.m_p
 
-def convection_efield(Ue, B):
+def convection_efield(Ue, B, des_mms):
     '''
     Calculate the convection electric field Ec = v x B
 
@@ -45,7 +45,7 @@ def convection_efield(Ue, B):
     
     # Create the DataArray for Ec
     Ec = xr.DataArray(Ec_components, dims=('time', 'comp1'),
-                      coords={'time': des_mms1['time'], 'comp1': ['x', 'y', 'z']})
+                      coords={'time': des_mms['time'], 'comp1': ['x', 'y', 'z']})
 
     return Ec
 
