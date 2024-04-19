@@ -32,13 +32,20 @@ def convection_efield(v, B):
         Convective electric field in units of [mV/m]
     '''
     # Should be able to use xr.cross() but I must not have the right version
-    Ec = 1e-3 * xr.DataArray(np.stack([(v[:,1]*B[:,2] - v[:,2]*B[:,1]),
-                                       (v[:,2]*B[:,0] - v[:,0]*B[:,2]),
-                                       (v[:,0]*B[:,1] - v[:,1]*B[:,0])], axis=1),
-                            dims=('time', 'component'),
-                            coords={'time': v['time'],
-                                    'component': ['x', 'y', 'z']}
-                            )
+  #  Ec = 1e-3 * xr.DataArray(np.stack([(v[:,1]*B[:,2] - v[:,2]*B[:,1]),
+   #                                    (v[:,2]*B[:,0] - v[:,0]*B[:,2]),
+    #                                   (v[:,0]*B[:,1] - v[:,1]*B[:,0])], axis=1),
+     #                       dims=('time', 'component'),
+      #                      coords={'time': v['time'],
+       #                             'component': ['x', 'y', 'z']}
+        #                    )
+    Ec_components = 1e-3 * np.stack([(Ue[:, 1] * B[:, 2] - Ue[:, 2] * B[:, 1]),
+                                     (Ue[:, 2] * B[:, 0] - Ue[:, 0] * B[:, 2]),
+                                     (Ue[:, 0] * B[:, 1] - Ue[:, 1] * B[:, 0])], axis=1)
+    
+    # Create the DataArray for Ec
+    Ec = xr.DataArray(Ec_components, dims=('time', 'comp1'),
+                      coords={'time': des_mms1['time'], 'comp1': ['x', 'y', 'z']})
 
     return Ec
 
