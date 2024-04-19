@@ -45,7 +45,7 @@ def dissipation_measures(t0, t1):
         sc = str(idx)
         De_moms['De'+sc] = physics.De_moms(data['E'+sc], data['B'+sc],
                                            data['ne'+sc], data['Vi'+sc],
-                                           data['Ve'+sc])
+                                           data['Ve'+sc],data['des_mms'+sc])
     
     De_curl = physics.De_curl(data[['E1', 'E2', 'E3', 'E4']],
                               data[['B1', 'B2', 'B3', 'B4']],
