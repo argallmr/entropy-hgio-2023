@@ -429,7 +429,7 @@ def devoriak_pressure(R, U, p, P):
     # Theta - divergence of the bulk velocity
     divU = divergence(k.rename({'component': 'comp1'}),
                              U,
-                             dim='comp1').rename({'comp2': 'component'})
+                             dim='comp1')
 #rename({'component': 'comp1'}),
  #                            n_UiUi_UeUe,
   #                           dim='comp1').rename({'comp2': 'component'})
