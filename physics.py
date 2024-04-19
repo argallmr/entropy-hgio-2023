@@ -159,7 +159,7 @@ def De_moms(E, B, n, Vi, Ve):
     '''
     
     # Electric field in the electron rest frame
-    Ec = convection_efield(Ve, B)
+    Ec = convection_efield(Ve, B,des_mms)
     E_prime = E + Ec
 
     # Current density
