@@ -164,7 +164,7 @@ def De_moms(E, B, n, Vi, Ve):
     for idx, (vname, Bname) in enumerate(zip(Ve, B)):
        Ec['Ec{0}'.format(idx)] = convection_efield(Ve[vname], B[Bname])
     
-    Electric field in the electron rest frame
+  #  Electric field in the electron rest frame
     E_prime = barycentric_avg(E) + barycentric_avg(Ec)
 
     
