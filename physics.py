@@ -171,7 +171,7 @@ def De_moms(E, B, n, Vi, Ve,des_mms):
     return De
 
 
-def De_curl(E, B, Ve, R):
+def De_curl(E, B, Ve, R,des_mms):
     '''
     Calculate the electron frame dissipation measure using data from a single
     spacecraft. This uses the Ampere's Law to calculate the current density.
