@@ -196,7 +196,7 @@ def De_curl(E, B, Ve, R):
     # Convective electric field
     Ec = xr.Dataset()
     for idx, (vname, Bname) in enumerate(zip(Ve, B)):
-        Ec['Ec{0}'.format(idx)] = convection_efield(Ve[vname], B[Bname])
+        Ec['Ec{0}'.format(idx)] = convection_efield(Ve[vname], B[Bname],des_mms)
     
     # Electric field in the electron rest frame
     E_prime = barycentric_avg(E) + barycentric_avg(Ec)
