@@ -45,7 +45,7 @@ def convection_efield(Ue, B):
     
     # Create the DataArray for Ec
   #  Ec = xr.DataArray(Ec_components, dims=('time', 'component'),
-                      coords={'time': des_mms['time'], 'component': ['x', 'y', 'z']})
+              #        coords={'time': des_mms['time'], 'component': ['x', 'y', 'z']})
 #
     return Ec
 
