@@ -15,7 +15,7 @@ eV2K = c.value('electron volt-kelvin relationship')
 me = c.m_e
 mp = c.m_p
 
-def convection_efield(Ue, B, des_mms):
+def convection_efield(Ue, B):
     '''
     Calculate the convection electric field Ec = v x B
 
@@ -32,21 +32,21 @@ def convection_efield(Ue, B, des_mms):
         Convective electric field in units of [mV/m]
     '''
     # Should be able to use xr.cross() but I must not have the right version
-  #  Ec = 1e-3 * xr.DataArray(np.stack([(v[:,1]*B[:,2] - v[:,2]*B[:,1]),
-   #                                    (v[:,2]*B[:,0] - v[:,0]*B[:,2]),
-    #                                   (v[:,0]*B[:,1] - v[:,1]*B[:,0])], axis=1),
-     #                       dims=('time', 'component'),
-      #                      coords={'time': v['time'],
-       #                             'component': ['x', 'y', 'z']}
-        #                    )
-    Ec_components = 1e-3 * np.stack([(Ue[:, 1] * B[:, 2] - Ue[:, 2] * B[:, 1]),
-                                     (Ue[:, 2] * B[:, 0] - Ue[:, 0] * B[:, 2]),
-                                     (Ue[:, 0] * B[:, 1] - Ue[:, 1] * B[:, 0])], axis=1)
+    Ec = 1e-3 * xr.DataArray(np.stack([(v[:,1]*B[:,2] - v[:,2]*B[:,1]),
+                                       (v[:,2]*B[:,0] - v[:,0]*B[:,2]),
+                                       (v[:,0]*B[:,1] - v[:,1]*B[:,0])], axis=1),
+                            dims=('time', 'component'),
+                           coords={'time': v['time'],
+                                   'component': ['x', 'y', 'z']}
+                         )
+  #  Ec_components = 1e-3 * np.stack([(Ue[:, 1] * B[:, 2] - Ue[:, 2] * B[:, 1]),
+   #                                  (Ue[:, 2] * B[:, 0] - Ue[:, 0] * B[:, 2]),
+    #                                 (Ue[:, 0] * B[:, 1] - Ue[:, 1] * B[:, 0])], axis=1)
     
     # Create the DataArray for Ec
-    Ec = xr.DataArray(Ec_components, dims=('time', 'component'),
+  #  Ec = xr.DataArray(Ec_components, dims=('time', 'component'),
                       coords={'time': des_mms['time'], 'component': ['x', 'y', 'z']})
-
+#
     return Ec
 
 
@@ -132,7 +132,7 @@ def charge_density(R, E):
     return n_rho
 
 
-def De_moms(E, B, n, Vi, Ve,des_mms):
+def De_moms(E, B, n, Vi, Ve):
     '''
     Calculate the electron frame dissipation measure using data from a single
     spacecraft. This uses the plasma moments to calculate the current density.
@@ -160,16 +160,16 @@ def De_moms(E, B, n, Vi, Ve,des_mms):
     
     # Electric field in the electron rest frame
 
-    Ec = xr.Dataset()
-    for idx, (vname, Bname) in enumerate(zip(Ve, B)):
-        Ec['Ec{0}'.format(idx)] = convection_efield(Ve[vname], B[Bname],des_mms)
+   # Ec = xr.Dataset()
+   # for idx, (vname, Bname) in enumerate(zip(Ve, B)):
+   #     Ec['Ec{0}'.format(idx)] = convection_efield(Ve[vname], B[Bname])
     
     # Electric field in the electron rest frame
-    E_prime = barycentric_avg(E) + barycentric_avg(Ec)
+  #  E_prime = barycentric_avg(E) + barycentric_avg(Ec)
 
     
-   # Ec = convection_efield(Ve, B,des_mms)
-   # E_prime = E + Ec
+    Ec = convection_efield(Ve, B)
+    E_prime = E + Ec
 
     # Current density
     J = current_density_moms(n, Vi, Ve)
@@ -180,7 +180,7 @@ def De_moms(E, B, n, Vi, Ve,des_mms):
     return De
 
 
-def De_curl(E, B, Ve, R,des_mms):
+def De_curl(E, B, Ve, R):
     '''
     Calculate the electron frame dissipation measure using data from a single
     spacecraft. This uses the Ampere's Law to calculate the current density.
@@ -205,7 +205,7 @@ def De_curl(E, B, Ve, R,des_mms):
     # Convective electric field
     Ec = xr.Dataset()
     for idx, (vname, Bname) in enumerate(zip(Ve, B)):
-        Ec['Ec{0}'.format(idx)] = convection_efield(Ve[vname], B[Bname],des_mms)
+        Ec['Ec{0}'.format(idx)] = convection_efield(Ve[vname], B[Bname])
     
     # Electric field in the electron rest frame
     E_prime = barycentric_avg(E) + barycentric_avg(Ec)
