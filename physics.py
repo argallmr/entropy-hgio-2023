@@ -15,7 +15,7 @@ eV2K = c.value('electron volt-kelvin relationship')
 me = c.m_e
 mp = c.m_p
 
-def convection_efield(Ue, B):
+def convection_efield(v, B):
     '''
     Calculate the convection electric field Ec = v x B
 
