@@ -5,7 +5,7 @@ from matplotlib import pyplot as plt, dates as mdates
 from scipy import constants
 import re
 from pymms.data import fpi, edp , util
-#import util
+import util
 
 kB = constants.k # J/K
 
