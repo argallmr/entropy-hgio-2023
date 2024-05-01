@@ -53,7 +53,7 @@ def dissipation_measures(t0, t1):
                               data[['r1', 'r2', 'r3', 'r4']])
 
     # Plot the data
-    fig, axes = plt.subplots(nrows=1, ncols=1, squeeze=False)
+    fig, axes = plt.subplots(nrows=1, ncols=1, squeeze=False,figsize=(7, 2))
     
     # Electron Frame Dissipation Measure
     ax = axes[0,0]
