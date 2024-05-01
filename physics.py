@@ -160,16 +160,16 @@ def De_moms(E, B, n, Vi, Ve):
     
     # Electric field in the electron rest frame
 
-    Ec = xr.Dataset()
-    for idx, (vname, Bname) in enumerate(zip(Ve, B)):
-       Ec['Ec{0}'.format(idx)] = convection_efield(Ve[vname], B[Bname])
+    #Ec = xr.Dataset()
+   # for idx, (vname, Bname) in enumerate(zip(Ve, B)):
+      # Ec['Ec{0}'.format(idx)] = convection_efield(Ve[vname], B[Bname])
     
   #  Electric field in the electron rest frame
-    E_prime = barycentric_avg(E) + barycentric_avg(Ec)
+   #E_prime = barycentric_avg(E) + barycentric_avg(Ec)
 
     
-   # Ec = convection_efield(Ve, B)
-  #  E_prime = E + Ec
+    Ec = convection_efield(Ve, B)
+    E_prime = E + Ec
 
     # Current density
     J = current_density_moms(n, Vi, Ve)
