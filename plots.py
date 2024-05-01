@@ -58,9 +58,9 @@ def dissipation_measures(t0, t1):
     # Electron Frame Dissipation Measure
     ax = axes[0,0]
     De_moms['De1'].plot(ax=ax, color='Black', label='MMS1')
-    De_moms['De2'].plot(ax=ax, color='Blue', label='MMS1')
-    De_moms['De3'].plot(ax=ax, color='Green', label='MMS1')
-    De_moms['De4'].plot(ax=ax, color='Red', label='MMS1')
+    De_moms['De2'].plot(ax=ax, color='Blue', label='MMS2')
+    De_moms['De3'].plot(ax=ax, color='Green', label='MMS3')
+    De_moms['De4'].plot(ax=ax, color='Red', label='MMS4')
     De_curl.plot(ax=ax, color='magenta', label='Curl')
     ax.set_title('')
     ax.set_ylabel('De [$nW/m^{3}$]')
