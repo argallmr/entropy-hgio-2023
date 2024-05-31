@@ -34,7 +34,8 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
     p = ((P[:,0,0] + P[:,1,1] + P[:,2,2]) / 3.0).drop(['t_index_dim1', 't_index_dim2'])
     s = fpi.entropy(f)
     sV = fpi.vspace_entropy(f, N=N, s=s)
-    
+    tn = t[~np.isnan(t)]
+    #t_maxn = t_max[~np.isnan(t_max)]
     # Analytical form of the Maxwellian entropy
     #   - FPI moments (_moms) and integrated moments (_int)
     sM_moms = fpi.maxwellian_entropy(fpi_moms['density'], fpi_moms['p'])
@@ -42,7 +43,7 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
     
     # Use calculated moments for the Maxwellian distribution
     if lut_file is None:
-        f_max = fpi.maxwellian_distribution(f, N=N, bulkv=V, T=t)
+        f_max = fpi.maxwellian_distribution(f, N=N, bulkv=V, T=tn)
     
         # Maxwellian Entropy integrated from the equivalent
         # Maxwellian distribution (_dist)
@@ -70,20 +71,21 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
         
         # Allocate memory
         NM = xr.zeros_like(N)
-        tM = xr.zeros_like(N)
-        sM_dist = xr.zeros_like(N)
-        sVM = xr.zeros_like(N)
+        tM = xr.zeros_like(tn)
+        sM_dist = xr.zeros_like(s)
+        sVM = xr.zeros_like(sV)
         f_max = xr.zeros_like(f)
         
+      
         # Minimize error in density and temperature
-        for idx, (dens, temp) in enumerate(zip(N, t)):
-            imin = np.argmin(np.sqrt((lut['t'].data - temp.item())**2
+        for idx, (dens, temp) in enumerate(zip(N, tn)):
+            imin = np.argmin(np.sqrt((lut['tn'].data - temp.item())**2
                                      + (lut['N'].data - dens.item())**2
                                      ))
             irow = imin // dims[1]
             icol = imin % dims[1]
             NM[idx] = lut['N'][irow, icol]
-            tM[idx] = lut['t'][irow, icol]
+            tM[idx] = lut['tn'][irow, icol]
             sM_dist[idx] = lut['s'][irow, icol]
             sVM[idx] = lut['sv'][irow, icol]
             f_max[idx, ...] = lut['f'][irow, icol, ...]
@@ -96,7 +98,7 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
     #   - a bias term in the numerator and
     #   - a regularization term in the denominator
     #   - (MbarKP - num) / denom --> R*(MbarKP + B)
-    num, denom = fpi.information_loss(f_max, f, N=N, T=t)
+    num, denom = fpi.information_loss(f_max, f, N=N, T=tn)
     Mbar2 = (MbarKP - num) / denom
     
     fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(7, 2), squeeze=False)
