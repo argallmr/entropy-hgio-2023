@@ -78,14 +78,14 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
         
       
         # Minimize error in density and temperature
-        for idx, (dens, temp) in enumerate(zip(N, tn)):
-            imin = np.argmin(np.sqrt((lut['tn'].data - temp.item())**2
+        for idx, (dens, temp) in enumerate(zip(N, t)):
+            imin = np.argmin(np.sqrt((lut['t'].data - temp.item())**2
                                      + (lut['N'].data - dens.item())**2
                                      ))
             irow = imin // dims[1]
             icol = imin % dims[1]
             NM[idx] = lut['N'][irow, icol]
-            tM[idx] = lut['tn'][irow, icol]
+            tM[idx] = lut['t'][irow, icol]
             sM_dist[idx] = lut['s'][irow, icol]
             sVM[idx] = lut['sv'][irow, icol]
             f_max[idx, ...] = lut['f'][irow, icol, ...]
