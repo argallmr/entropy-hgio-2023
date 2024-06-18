@@ -27,9 +27,9 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
     # Calculate moments
     #  - Use calculated moments for the Maxwellian distribution
     N = fpi.density(f)
-    V = fpi.velocity(f, N=N)
-    T = fpi.temperature(f, N=N, V=V)
-    P = fpi.pressure(f, N=N, T=T)
+    V = fpi.velocity(f, n=N)
+    T = fpi.temperature(f, n=N, V=V)
+    P = fpi.pressure(f, n=N, T=T)
     t = ((T[:,0,0] + T[:,1,1] + T[:,2,2]) / 3.0).drop(['t_index_dim1', 't_index_dim2'])
     p = ((P[:,0,0] + P[:,1,1] + P[:,2,2]) / 3.0).drop(['t_index_dim1', 't_index_dim2'])
     s = fpi.entropy(f)
@@ -61,7 +61,7 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
         #     M-bar term will be negative, which is unphysical, so here we use
         #     the density of the measured distribution and the entropy of the
         #     equivalent Maxwellian.
-        sVM = fpi.vspace_entropy(f_max, N=N, s=sM_dist)
+        sVM = fpi.vspace_entropy(f_max, n=N, s=sM_dist)
     
     # Use a look-up table for the Maxwellian parameters
     else:
