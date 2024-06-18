@@ -1,6 +1,7 @@
 import datetime as dt
 import xarray as xr
 import numpy as np
+from scipy import constants as c
 from pathlib import Path
 
 from pymms.data import util, fgm, edp, fpi
@@ -8,33 +9,59 @@ from pymms import config
 
 import tools, physics
 
-lut_dir = Path('~/data/fpi_fmax_lookup_tables/').expanduser()
-output_dir = Path(config['dropbox_root'])
+eV2K = c.value('electron volt-kelvin relationship')
 
-def filename(mode, t0, t1):
+# Put data created for this project in ~/data/2023-hgio/
+output_dir = (Path(config['data_root']) / '../2023-hgio/').resolve()
+
+def filename(sc, mode, t0, t1, optdesc=None):
     '''
     Create a filename for database files.
 
     Parameters
     ----------
+    sc : str
+        Spacecraft identifier: (mms, mms1, mms2, mms3, mms4)
     mode : str
         Data rate mode (srvy, brst)
     t0, t1 : `datetime.datetime`
         Start and end of the time of the data interval
+    optdesc : str
+        Optional filename descriptor
     
     Returns
     -------
     file_path : path-like
         Full file path.
     '''
+    valid_sc = ('mms', 'mms1', 'mms2', 'mms3', 'mms4')
+    if sc not in valid_sc:
+        raise ValueError('sc {0} not in {1}'.format(sc, valid_sc))
     
     # Create a file name
-    filename = '_'.join(('mms', 'hgio', mode,
-                         t0.strftime('%Y%m%d%_H%M%S'),
-                         t1.strftime('%Y%m%d%_H%M%S')))
-    file_path = (output_dir / filename).with_suffix('.nc')
+    if optdesc is not None:
+        stem = '_'.join((sc, 'hgio', mode, optdesc))
+    else:
+        stem = '_'.join((sc, 'hgio', mode))
+    
+    # Time part
+    if t0.date() == t1.date():
+        fname = '_'.join((stem,
+                          t0.strftime('%Y%m%d'),
+                          t0.strftime('%H%M%S'),
+                          t1.strftime('%H%M%S')))
+    else:
+        fname = '_'.join((stem,
+                          t0.strftime('%Y%m%d'),
+                          t0.strftime('%H%M%S'),
+                          t1.strftime('%Y%m%d'),
+                          t1.strftime('%H%M%S')))
+    
+    # Put everything together
+    file_path = (output_dir / fname).with_suffix('.nc')
     
     return file_path
+
 
 def load_data(t0, t1, mode='brst', dt_out=np.timedelta64(30, 'ms')):
     '''
@@ -63,6 +90,13 @@ def load_data(t0, t1, mode='brst', dt_out=np.timedelta64(30, 'ms')):
         Path to netCDF file containing the data.
     '''
 
+    # Create a file name
+    fname = filename('mms', mode, t0, t1)
+
+    # If it already exists, return it
+    if fname.exists():
+        return fname
+
     # Get the data from each spacecraft
     mec_data = get_data('mec', mode, t0, t1, dt_out)
     fgm_data = get_data('fgm', mode, t0, t1, dt_out)
@@ -72,9 +106,6 @@ def load_data(t0, t1, mode='brst', dt_out=np.timedelta64(30, 'ms')):
 
     # Combine into a single dataset
     data = xr.merge([mec_data, fgm_data, edp_data, des_data, dis_data])
-
-    # Create an output file name
-    fname = filename(mode, t0, t1)
 
     # Save to data file
     data.to_netcdf(fname)
@@ -150,7 +181,7 @@ def get_data(instr, mode, t0, t1, dt_out=np.timedelta64(30, 'ms')):
         try:
             ds[data.name] = data
         except AttributeError:
-            ds = xr.merge([ds, data])
+            ds = xr.merge([ds, data])               
     
     return ds
 
@@ -395,44 +426,108 @@ def get_dis_data(sc, mode, t0, t1):
             )
 
 
-def max_lut_filename(sc, instr, mode, level, optdesc, start_date, end_date,
-                     resolution=(100, 100)):
+def load_entropy(mode, start_date, end_date,
+                 optdesc='des-dist'):
     '''
-    Create a file name for the Maxwellian Look-Up Table
+    Calculate the change in relative energy per particle
 
     Parameters
     ----------
     sc : str
         MMS spacecraft identifier ('mms1', 'mms2', 'mms3', 'mms4')
-    instr : str
-        Instrument short name ('fpi',)
     mode : str
         Operating mode ('brst', 'srvy', 'fast')
-    level : str
-        Data level ('l2,')
     optdesc : str
         Filename optional descriptor ('dis-dist', 'des-dist')
     start_date, end_date : `datetime.datetime`
         Start and end of the time interval
-    
-    Returns
-    -------
-    lut_file : path-like
-        Path to the Maxwellian Look-Up Table
     '''
-    res_str = '{0}x{1}'.format(*resolution)
-    
-    # Create a file name for the look-up table
-    lut_file = lut_dir / '_'.join((sc, instr, mode, level,
-                                   optdesc+'-lut-'+res_str,
-                                   start_date.strftime('%Y%m%d_%H%M%S'),
-                                   end_date.strftime('%Y%m%d_%H%M%S')))
-    lut_file = lut_file.with_suffix('.ncdf')
+    species = optdesc[1]
 
-    return lut_file
+    # Load the dataset (but do not download/wrangle the data)
+    fname = filename('mms', mode, start_date, end_date)
+    if not fname.exists():
+        raise ValueError('Run load_data first. File does not exist:\n{0}'
+                         .format(fname))
+    data = xr.load_dataset(fname)
+
+    # Entropy parameters for each spacecraft
+    s_rel = xr.Dataset()
+    for sc in ['mms1', 'mms2', 'mms3', 'mms4']:
+
+        # Get the LUT
+        lut_file = max_lut_filename(sc, mode, start_date, end_date, optdesc=optdesc)
+        if not fname.exists():
+            raise ValueError('Run load_max_lut first. File does not exist:\n{0}'
+                             .format(lut_file))
+        lut = xr.load_dataset(lut_file)
+
+        #
+        #  Measured parameters
+        #
+
+        # Measured distrubtion function
+        #   - Energy affected in time-dependent manner by S/C pot correction
+        f = max_lut_precond_f(sc, mode, optdesc, start_date, end_date)
+
+        # Make sure they all have the same timestamps
+        #   - Infinity is replaced by NaN. Put infinity back
+        #   - NetCDF files do not like None values for attrs, so replace
+        f = f.interp_like(data['time'], kwargs={'fill_value': 'extrapolate'})
+        f['energy'][:,-1] = np.infty
+        f.attrs['Upper_energy_integration_limit'] = np.infty
+        
+        # Moments and entropy parameters for the measured distribution
+        n = fpi.density(f)
+        V = fpi.velocity(f, N=n)
+        T = fpi.temperature(f, N=n, V=V)
+        t = ((T[:,0,0] + T[:,1,1] + T[:,2,2]) / 3.0).drop(['t_index_dim1', 't_index_dim2'])
+
+        #
+        #  Optimized equivalent Maxwellian parameters
+        #
+        
+        # Equivalent Maxwellian distribution function
+        opt_lut = max_lut_optimize(lut, f, n, t, method='nt')
+
+        #
+        #  Relative velocity space entropy
+        #
+
+        sV_rel_opt = physics.relative_entropy(f, opt_lut['f_M'])
+
+        #
+        # Save measured parameters
+        #
+        
+        # Energy bins are corrected for S/C pot so are time and s/c dependent
+        s_rel['f' + sc[3]] = f.rename({'phi': 'phi'+sc[3], 'energy': 'E'+sc[3], 'U': 'U'+sc[3]})
+        s_rel['n' + sc[3]] = n
+        s_rel['V' + sc[3]] = V
+        s_rel['T' + sc[3]] = T
+        s_rel['t' + sc[3]] = t
+        s_rel['sV_rel' + sc[3]] = sV_rel_opt
+
+        # Combine with optimized maxwellian parameters
+        s_rel = xr.merge([s_rel,
+                          opt_lut.rename({'f_M': 'f'+sc[3]+'_M',
+                                          'phi': 'phi'+sc[3],
+                                          'energy': 'E'+sc[3],
+                                          'U': 'U'+sc[3],
+                                          'n_M': 'n'+sc[3]+'_M',
+                                          't_M': 't'+sc[3]+'_M',
+                                          's_M': 's'+sc[3]+'_M',
+                                          'sV_M': 'sV'+sc[3]+'_M'})])
+
+    # Save as dataset
+    fname = filename('mms', mode, start_date, end_date, optdesc=optdesc+'-s')
+    s_rel.to_netcdf(fname)
+
+    return fname
 
 
-def max_lut_load(sc, mode, optdesc, start_date, end_date):
+def load_max_lut(sc, mode, optdesc, start_date, end_date,
+                 resolution=(100,100)):
     '''
     Create a Maxwellian Look-Up Table (LUT).
 
@@ -456,18 +551,42 @@ def max_lut_load(sc, mode, optdesc, start_date, end_date):
     instr = 'fpi'
     level = 'l2'
 
-    lut_file = max_lut_filename(sc, instr, mode, level, optdesc,
-                                start_date, end_date)
+    lut_file = max_lut_filename(sc, mode, start_date, end_date,
+                                resolution=resolution)
+    if lut_file.exists():
+        return lut_file
 
-    # If the LUT does not exist, create it
-    if not lut_file.exists():
-        # Precondition the distribution function
-        f = max_lut_precond_f(sc, mode, optdesc, start_date, end_date)
+    # Precondition the distribution function
+    f = max_lut_precond_f(sc, mode, optdesc, start_date, end_date)
 
-        # Create the look-up table
-        lut_file = physics.maxwellian_lut(f, filename=lut_file)
+    # Create the look-up table
+    lut_file = physics.maxwellian_lut(f, filename=lut_file, dims=resolution)
     
     return lut_file
+
+
+def max_lut_filename(*args, optdesc='des-dist', resolution=(100,100)):
+    '''
+    Create a filename for database files.
+
+    Parameters
+    ----------
+    mode : str
+        Data rate mode (srvy, brst)
+    t0, t1 : `datetime.datetime`
+        Start and end of the time of the data interval
+    optdesc : str
+        Optional filename descriptor
+    
+    Returns
+    -------
+    file_path : path-like
+        Full file path.
+    '''
+    res_str = '{0}x{1}'.format(*resolution)
+    lut_optdesc = optdesc + '-lut-' + res_str
+    
+    return filename(*args, optdesc=lut_optdesc)
 
 
 def max_lut_precond_f(sc, mode, optdesc, start_date, end_date):

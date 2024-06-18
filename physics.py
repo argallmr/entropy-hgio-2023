@@ -1,5 +1,6 @@
 import numpy as np
 import xarray as xr
+import itertools
 from scipy import constants as c
 from tools import recip_vec, curl, divergence, gradient, barycentric_avg
 from pathlib import Path
@@ -43,6 +44,16 @@ def convection_efield(v, B):
                             )
 
     return Ec
+
+
+def convective_derivative_spatial(R, v_str, u):
+    
+    # Create the reciprocal vectors
+    k = recip_vec(R)
+    
+    # Align dimensions to be dotted: (N,3) . (3,)
+    delta_space = np.dot(gradient(k, u), v_str)
+    return delta_space
 
 
 def current_density_curl(R, B):
@@ -165,6 +176,104 @@ def De_moms(E, B, n, Vi, Ve):
 
     return De
 
+
+def pE_rel_pt(R, sV_rel, n_M, t_M, v_str):
+    '''
+    Compute the partial derivatie of the relative energy with respect to time
+
+    Parameters
+    ----------
+    R : `xarray.Dataset`
+        Spatial locations of the measurements from each of the four spacecraft
+    sV_rel : `xarray.Dataset`
+        Relative velocity space entropy density from each of the four spacecraft
+    n_M : `xarray.Dataset
+        Density derived from the equivalent Maxwellian distribution from each of
+        the four spacecraft
+    t_M : `xarray.Dataset
+        Scalar temperataure  derived from the equivalent Maxwellian distribution
+        from each of the four spacecraft
+    v_str : (3,) float
+        Velocity vector of the structure convecting past the spacecraft
+    
+    Returns
+    -------
+    pE_rel : `xarray.Dataset`
+        Derived parameters leading to the increment of the relative energy
+        per particle:
+            * time:             Time stamps of the data
+            * dsV_rel[1234]_dt: Total time derivative of the velocity-space
+                                relative entropy density [J/K/s]
+            * dsV_rel_dt:       Barycentric average of dsV_rel[1234]_dt [J/K/s]
+            * dE_rel[1234]_dt:  Total time derivative of the relative energy
+                                per particle [W]
+            * dE_rel_dt:        Barycentric average of dE_rel[1234]_dt [W]
+            * dE_rel_dr:        Spatial term of the convective derivative of
+                                the relative energy per particle [W]
+            * pE_rel_pt:        Partial time derivative of the relative energy
+                                per particle [W]
+            * n_pE_rel_pt:      Partial time derivative of the relative energy
+                                per particle [nW/m^3]
+    '''
+    sc_id = ['1', '2', '3', '4']
+
+    #
+    # Total time derivative
+    #
+
+    pE_rel = xr.Dataset()
+    for sc, sV_name, n_name, t_name in zip(sc_id, sV_rel, n_M, t_M):
+
+        sVr = sV_rel[sV_name]
+        n = n_M[n_name]
+        t = t_M[t_name]
+
+        # Sample interval
+        delta_t = 1.0 / (float(np.diff(sVr['time']).mean()) * 1e-9)
+
+        # Increment: Relative velocity-space kinetic entropy per particle
+        #   - Gradient computed via centered difference
+        pE_rel['sVr_n'+sc] = 1e-6 * sVr / n # J/K = J/K/m^3 * cm^3 * (10^-6 m^3/cm^3)
+        pE_rel['psV_rel'+sc+'_pt'] = xr.DataArray(np.gradient(pE_rel['sVr_n'+sc], delta_t),
+                                                  dims=('time',),
+                                                  coords={'time': sVr['time']}) # J/K/s
+        
+        # Increment: relative energy per particle
+        pE_rel['pE_rel'+sc+'_pt'] = (eV2J * (eV2K/eV2J) * t
+                                     * pE_rel['psV_rel'+sc+'_pt']) # J/s = W
+    
+    # Barycentric average: Kinetic entropy per particle
+    pE_rel['sVr_n'] = 1e-6 * barycentric_avg(sV_rel) / barycentric_avg(n_M)
+    pE_rel['psV_rel_pt'] = xr.DataArray(np.gradient(pE_rel['sVr_n'], delta_t),
+                                        dims=('time',),
+                                        coords={'time': sV_rel['time']}) # J/K/s
+
+    # Barycentric average: Relative energy per particle
+    pE_rel['pE_rel_pt'] = (eV2J * (eV2K/eV2J) * barycentric_avg(t_M)
+                           * pE_rel['psV_rel_pt']) # J/s = W
+
+    #
+    # Convective spatial derivative
+    #
+
+    # Convective derivative spatial term
+    dsV_rel_dr = convective_derivative_spatial(
+                        R[['r1', 'r2', 'r3', 'r4']], v_str,
+                        pE_rel[['sVr_n1', 'sVr_n2', 'sVr_n3', 'sVr_n4']]
+                 ) # J/K/s
+    pE_rel['dsV_rel_dr'] = xr.DataArray(dsV_rel_dr,
+                                    dims=('time',),
+                                    coords={'time': sV_rel['time']})
+
+    # HORNET
+    pE_rel['HORNET'] = (-1e15 * barycentric_avg(n_M)
+                        * eV2J * (eV2K/eV2J) * barycentric_avg(t_M)
+                        * (pE_rel['psV_rel_pt'] + pE_rel['dsV_rel_dr'])
+                        ) # nW/m^3
+
+    return pE_rel
+
+
 def relative_energy_d_dt(sc, mode, optdesc, start_date, end_date):
     '''
     Calculate the change in relative energy per particle
@@ -221,9 +330,10 @@ def relative_energy_d_dt(sc, mode, optdesc, start_date, end_date):
                                coords={'time': sV_rel_opt['time']})
 
     # Increment of the relative energy per particle
-    d_E_rel_dt = 1e-6 * eV2K * opt_lut['t_M'] * d_sV_rel_dt # J/s = W
+    d_E_rel_dt = eV2J*(eV2K/eV2J) * opt_lut['t_M'] * d_sV_rel_dt # J/s = W
+    d_E_rel_dt = 1e15 * d_E_rel_dt * opt_lut['n_M'] # nW / m^3
 
-    return d_E_rel_dt # nW/m^3
+    return d_E_rel_dt # nW / m^3
 
 
 def De_curl(E, B, Ve, R):
@@ -372,8 +482,8 @@ def maxwellian_lut(f, n=None, t=None, dims=(100, 100), filename=None):
     
     # Calculate the temperature to determine the parameter range
     if t is None:
-        V = fpi.velocity(f, N=n)
-        T = fpi.temperature(f, N=n, V=V)
+        V = fpi.velocity(f, n=n)
+        T = fpi.temperature(f, n=n, V=V)
         t = ((T[:,0,0] + T[:,1,1] + T[:,2,2]) / 3.0).drop(['t_index_dim1', 't_index_dim2'])
     
     # Only a signle distribution is required
@@ -449,8 +559,8 @@ def traceless_pressure_tensor(p, P):
     '''
 
     # Barycentric average of the pressure tensor and scalar pressure
-    P_bary = (P['P1'] + P['P2'] + P['P3'] + P['P4']) / 4
-    p_bary = (p['p1'] + p['p2'] + p['p3'] + p['p4']) / 4
+    P_bary = barycentric_avg(P)
+    p_bary = barycentric_avg(p)
 
     # Pi - Traceless pressure tensor
     Pi = P_bary - p_bary * xr.DataArray(np.broadcast_to(np.identity(3), (len(p_bary), 3, 3)),
@@ -583,3 +693,36 @@ def agyrotropy(P, b):
     Q = 1 - ((4*I2) / ((I1-p_par) * (I1 + 3*p_par)))
 
     return Q
+
+
+def permutation_entropy(x, n):
+    '''
+    
+    Parameters
+    ----------
+    x : 
+
+    n : 
+        Embedding dimension
+    '''
+    n_windows = len(x) - n + 1
+    total_permutations = np.math.factorial(n)
+
+    permutations = list(itertools.permutations(np.arange(n), n))
+
+    # Sliding window iterable
+    #    https://stackoverflow.com/questions/6822725/rolling-or-sliding-window-iterator
+    occurrence = np.zeros(total_permutations)
+    for i in range(n_windows):
+        symbol = tuple(np.argsort(x[i:i+n])) # pi
+        idx = permutations.index(symbol)
+        occurrence[idx] += 1 #
+
+    # Calculate the probability
+    probability = occurrence / n_windows
+
+    # Calculate the permutation entropy
+    H = -np.sum(probability
+                * np.log2(probability, np.zeros_like(probability), where=probability!=0))
+
+    return H

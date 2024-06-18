@@ -342,8 +342,8 @@ def interp_over_gaps(data, t_out, extrapolate=False):
     # Number of data gaps
     N_gaps = len(idx_gaps)
     if (N_gaps - 1) > 0:
-        warn('{0} data gaps found in dataset'
-             .format(N_gaps - 1))
+        warn('{0} data gaps found in dataset. Gap size: {1}.'
+             .format(N_gaps - 1, N_dt[idx_gaps[:-1]]))
 
     # Interpolate each contiguous segment
     temp = []
@@ -475,7 +475,7 @@ def resample(data, t0, t1, dt_out, extrapolate=False, method='nearest'):
     return data.assign_coords({'dt_plus': dt_out.astype('timedelta64[ns]')})
 
 
-def smooth(data, n, step=1, fs=None, end_points=None):
+def smooth(data, n, step=1, fs=None, weights=1, end_points=None):
     '''
     Smooth an array.
 
@@ -524,6 +524,14 @@ def smooth(data, n, step=1, fs=None, end_points=None):
         raise ValueError('Too few points to shift (step={0}). '
                          'Must be at least 1.'.format(step))
     
+    # Weights must be scalar or an array the same length as data
+    if np.isscalar(weights):
+        weights = np.repeat(weights, n)
+    if len(weights) != n:
+        raise ValueError('Weights must be scalar or have length n.')
+    if data.ndim > 1:
+        weights = np.expand_dims(weights, np.arange(1,data.ndim).tolist())
+    
     # Number of windows that fit within the data
     N = len(data)
     N_out = int(np.floor((N-n)/step + 1))
@@ -538,7 +546,7 @@ def smooth(data, n, step=1, fs=None, end_points=None):
     # idx = np.int64((i0 + i1) / 2)
     idx = 0
     while i1 <= N:
-        out[idx,...] = data[i0:i1,...].mean(dim='time')
+        out[idx,...] = np.sum(weights * data[i0:i1,...], axis=0) / np.sum(weights, axis=0)
         t_out[idx] = data['time'][i0:i1].mean(dim='time').item()
 
         i0 += step
