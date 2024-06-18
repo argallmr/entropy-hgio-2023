@@ -33,7 +33,7 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
     t = ((T[:,0,0] + T[:,1,1] + T[:,2,2]) / 3.0).drop(['t_index_dim1', 't_index_dim2'])
     p = ((P[:,0,0] + P[:,1,1] + P[:,2,2]) / 3.0).drop(['t_index_dim1', 't_index_dim2'])
     s = fpi.entropy(f)
-    sV = fpi.vspace_entropy(f, N=N, s=s)
+    sV = fpi.vspace_entropy(f, n=N, s=s)
     tn = t[~np.isnan(t)]
     #t_maxn = t_max[~np.isnan(t_max)]
     # Analytical form of the Maxwellian entropy
