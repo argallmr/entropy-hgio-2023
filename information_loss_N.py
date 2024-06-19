@@ -4,7 +4,7 @@ import xarray as xr
 from matplotlib import pyplot as plt, dates as mdates
 from scipy import constants
 import re
-from pymms.data import fpi, edp , util
+from pymms.data import fpi, edp
 import util
 
 kB = constants.k # J/K
@@ -34,8 +34,7 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
     p = ((P[:,0,0] + P[:,1,1] + P[:,2,2]) / 3.0).drop(['t_index_dim1', 't_index_dim2'])
     s = fpi.entropy(f)
     sV = fpi.vspace_entropy(f, N=N, s=s)
-    tn = t[~np.isnan(t)]
-    #t_maxn = t_max[~np.isnan(t_max)]
+    
     # Analytical form of the Maxwellian entropy
     #   - FPI moments (_moms) and integrated moments (_int)
     sM_moms = fpi.maxwellian_entropy(fpi_moms['density'], fpi_moms['p'])
@@ -43,7 +42,7 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
     
     # Use calculated moments for the Maxwellian distribution
     if lut_file is None:
-        f_max = fpi.maxwellian_distribution(f, N=N, bulkv=V, T=tn)
+        f_max = fpi.maxwellian_distribution(f, N=N, bulkv=V, T=t)
     
         # Maxwellian Entropy integrated from the equivalent
         # Maxwellian distribution (_dist)
@@ -71,12 +70,11 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
         
         # Allocate memory
         NM = xr.zeros_like(N)
-        tM = xr.zeros_like(tn)
-        sM_dist = xr.zeros_like(s)
-        sVM = xr.zeros_like(sV)
+        tM = xr.zeros_like(N)
+        sM_dist = xr.zeros_like(N)
+        sVM = xr.zeros_like(N)
         f_max = xr.zeros_like(f)
         
-      
         # Minimize error in density and temperature
         for idx, (dens, temp) in enumerate(zip(N, t)):
             imin = np.argmin(np.sqrt((lut['t'].data - temp.item())**2
@@ -101,58 +99,58 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
     num, denom = fpi.information_loss(f_max, f, N=N, T=t)
     Mbar2 = (MbarKP - num) / denom
     
-    fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(7, 2), squeeze=False)
+    fig, axes = plt.subplots(nrows=5, ncols=1, figsize=(6, 2), squeeze=False)
     
     # s
-#    ax = axes[0,0]
- #   l1 = sM_dist.plot(ax=ax, label='$s_{M}$')
-  #  l2 = s.plot(ax=ax, label='s')
+  #  ax = axes[0,0]
+  #  l1 = sM_dist.plot(ax=ax, label='$s_{M}$')
+   # l2 = s.plot(ax=ax, label='s')
 #    l2 = sM_moms.plot(ax=ax, label='$s_{M,moms}$')
 #    l3 = sM_int.plot(ax=ax, label='$s_{M,int}$')
 #    l4 = sM_dist.plot(ax=ax, label='$s_{M,f}$')
- #   ax.set_xlabel('')
- #   ax.set_xticklabels([])
+  #  ax.set_xlabel('')
+  #  ax.set_xticklabels([])
  #   ax.set_ylabel('s\n(J/K/$cm^{3}$)')
- #   ax.set_title('')
+  #  ax.set_title('')
  #   util.format_axes(ax, xaxis='off')
- #   util.add_legend(ax, [l1[0], l2[0]], outside=True)
+  #  util.add_legend(ax, [l1[0], l2[0]], outside=True)
     
     # sV
-#    ax = axes[1,0]
+  #  ax = axes[1,0]
   #  l1 = sVM.plot(ax=ax, label='$s_{M,V}$')
-   # l2 = sV.plot(ax=ax, label='$s_{V}$')
-    #ax.set_xlabel('')
-#    ax.set_xticklabels([])
- #   ax.set_ylabel('$s_{V}$\n(J/K/$cm^{3}$)')
+  #  l2 = sV.plot(ax=ax, label='$s_{V}$')
+ #   ax.set_xlabel('')
+  #  ax.set_xticklabels([])
+   # ax.set_ylabel('$s_{V}$\n(J/K/$cm^{3}$)')
   #  ax.set_title('')
-   # util.format_axes(ax, xaxis='off')
+  #  util.format_axes(ax, xaxis='off')
   #  util.add_legend(ax, [l1[0], l2[0]], outside=True)
 
-#    ax = axes[2,0]
- #   (-num).plot(ax=ax)
-  #  ax.set_xlabel('')
-   # ax.set_xticklabels([])
-  #  ax.set_ylabel('$B_{cg}$')
-   # ax.set_title('')
-   # util.format_axes(ax, xaxis='off')
-
-#    ax = axes[3,0]
- #   (1/denom).plot(ax=ax)
-  #  ax.set_xlabel('')
- #   ax.set_xticklabels([])
-  #  ax.set_ylabel('R')
-   # ax.set_title('')
-   # util.format_axes(ax, xaxis='off')
-
-#    ax = axes[4,0]
- #   (-num/denom).plot(ax=ax)
-  #  ax.set_xlabel('')
-   # ax.set_xticklabels([])
-   # ax.set_ylabel('$RB_{cg}$')
-   # ax.set_title('')
-   # util.format_axes(ax, xaxis='off')
-
     ax = axes[0,0]
+    (-num).plot(ax=ax)
+    ax.set_xlabel('')
+    ax.set_xticklabels([])
+    ax.set_ylabel('$B_{cg}$')
+    ax.set_title('')
+    util.format_axes(ax, xaxis='off')
+
+    ax = axes[1,0]
+    (1/denom).plot(ax=ax)
+    ax.set_xlabel('')
+    ax.set_xticklabels([])
+    ax.set_ylabel('R')
+    ax.set_title('')
+    util.format_axes(ax, xaxis='off')
+
+    ax = axes[2,0]
+    (-num/denom).plot(ax=ax)
+    ax.set_xlabel('')
+    ax.set_xticklabels([])
+    ax.set_ylabel('$RB_{cg}$')
+    ax.set_title('')
+    util.format_axes(ax, xaxis='off')
+
+    ax = axes[3,0]
     l1 = MbarKP_sV.plot(ax=ax, label='$\overline{M}_{KP,s_{V}}$')
     l2 = MbarKP.plot(ax=ax, label='$\overline{M}_{KP,s}$')
     ax.set_xlabel('')
@@ -169,7 +167,7 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
 #    ax.set_ylabel('$\overline{M}_{1}$')
 #    ax.set_title('')
 
-    ax = axes[1,0]
+    ax = axes[4,0]
     l1 = Mbar1.plot(ax=ax, label='$\overline{M}_{1}$')
     l2 = Mbar2.plot(ax=ax, label='$\overline{M}_{2}$')
     ax.set_xlabel('')
