@@ -99,7 +99,7 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
     num, denom = fpi.information_loss(f_max, f, N=N, T=t)
     Mbar2 = (MbarKP - num) / denom
     
-    fig, axes = plt.subplots(nrows=5, ncols=1, figsize=(6, 2), squeeze=False)
+    fig, axes = plt.subplots(nrows=5, ncols=1, figsize=(6, 10), squeeze=False)
     
     # s
   #  ax = axes[0,0]
