@@ -98,7 +98,7 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
     #   - a bias term in the numerator and
     #   - a regularization term in the denominator
     #   - (MbarKP - num) / denom --> R*(MbarKP + B)
-    num, denom = fpi.information_loss(f_max, f, N=N, T=tn)
+    num, denom = fpi.information_loss(f_max, f, n=N, T=tn)
     Mbar2 = (MbarKP - num) / denom
     
     fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(7, 2), squeeze=False)
