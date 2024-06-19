@@ -99,7 +99,7 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
     num, denom = fpi.information_loss(f_max, f, N=N, T=t)
     Mbar2 = (MbarKP - num) / denom
     
-    fig, axes = plt.subplots(nrows=5, ncols=1, figsize=(10, 6), squeeze=False)
+    fig, axes = plt.subplots(nrows=5, ncols=1, figsize=(10, 10), squeeze=False)
     
     # s
   #  ax = axes[0,0]
@@ -176,13 +176,13 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
     util.format_axes(ax)
     util.add_legend(ax, [l1[0], l2[0]], outside=True)
     
-    fig.suptitle('$\\overline{M}_{1} = (s_{V,M} - s_{V})/s_{V,M}$\n'
-             '$\\overline{M}_{2} = R (\\overline{M}_{KP} + B_{cg})$',
-             fontsize=14, bbox=dict(facecolor='white', alpha=0.5))
-   # fig.suptitle('$\overline{M}_{1} = (s_{V,M} - s_{V})/s_{V,M}$\n'
-    #             '$\overline{M}_{2} = R (\overline{M}_{KP} + B_{cg})$')
-   # plt.subplots_adjust(left=0.17, right=0.86, top=0.9, bottom=0.12, hspace=0.3)
-    plt.subplots_adjust(left=0.17, right=0.86, top=0.85, bottom=0.12, hspace=1)
+    #fig.suptitle('$\\overline{M}_{1} = (s_{V,M} - s_{V})/s_{V,M}$\n'
+     #        '$\\overline{M}_{2} = R (\\overline{M}_{KP} + B_{cg})$',
+      #       fontsize=14, bbox=dict(facecolor='white', alpha=0.5))
+    fig.suptitle('$\overline{M}_{1} = (s_{V,M} - s_{V})/s_{V,M}$\n'
+                 '$\overline{M}_{2} = R (\overline{M}_{KP} + B_{cg})$')
+    plt.subplots_adjust(left=0.17, right=0.86, top=0.9, bottom=0.12, hspace=0.3)
+   # plt.subplots_adjust(left=0.17, right=0.86, top=0.85, bottom=0.12, hspace=)
 
     plt.setp(axes, xlim=mdates.date2num([start_date, end_date]))
     return fig, axes
