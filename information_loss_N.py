@@ -159,7 +159,7 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
     ax.set_title('')
     util.format_axes(ax, xaxis='off')
     util.add_legend(ax, [l1[0], l2[0]], outside=True)
-
+   
 #    ax = axes[6,0]
 #    Mbar1.plot(ax=ax, label='$\overline{M}_{1}$')
 #    ax.set_xlabel('')
@@ -176,10 +176,13 @@ def information_loss(sc, instr, mode, start_date, end_date, lut_file):
     util.format_axes(ax)
     util.add_legend(ax, [l1[0], l2[0]], outside=True)
     
-
-    fig.suptitle('$\overline{M}_{1} = (s_{V,M} - s_{V})/s_{V,M}$\n'
-                 '$\overline{M}_{2} = R (\overline{M}_{KP} + B_{cg})$')
-    plt.subplots_adjust(left=0.17, right=0.86, top=0.9, bottom=0.12, hspace=0.3)
+    fig.suptitle('$\\overline{M}_{1} = (s_{V,M} - s_{V})/s_{V,M}$\n'
+             '$\\overline{M}_{2} = R (\\overline{M}_{KP} + B_{cg})$',
+             fontsize=14, bbox=dict(facecolor='white', alpha=0.5))
+   # fig.suptitle('$\overline{M}_{1} = (s_{V,M} - s_{V})/s_{V,M}$\n'
+    #             '$\overline{M}_{2} = R (\overline{M}_{KP} + B_{cg})$')
+   # plt.subplots_adjust(left=0.17, right=0.86, top=0.9, bottom=0.12, hspace=0.3)
+    plt.subplots_adjust(left=0.17, right=0.86, top=0.85, bottom=0.12, hspace=0.4)
 
     plt.setp(axes, xlim=mdates.date2num([start_date, end_date]))
     return fig, axes
