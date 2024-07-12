@@ -49,15 +49,16 @@ class Lookup_Table():
 
         return dE
 
-    def equivalent_maxwellian(f, n=None, t=None):
+    # Maybe static method?
+    def equivalent_maxwellian(self, f, n=None, t=None):
         
         if n is None:
             n = f.density()
         if t is None:
             t = f.scalar_temperature(n=n)
 
-        f_M = maxwellian(n, t,
-                         phi=f.phi, theta=f.theta, energy=f.energy)
+        f_M = f.maxwellian(n, t,
+                           phi=f.phi, theta=f.theta, energy=f.energy)
 
         return f_M
 
@@ -360,7 +361,7 @@ class Lookup_Table():
         for jn, n in enumerate(dens):
             for it, t in enumerate(temp):
                 f_M = maxwellian_distribution(dist, N=n, bulkv=vel, T=t)
-                n_M = density(f_M)
+                n_M = density(f_M) # f_M.densit()
                 V_M = velocity(f_M, n=n_M)
                 t_M = scalar_temperature(f_M, n=n_M, V=V_M)
                 # s = entropy(f_max)
@@ -497,3 +498,16 @@ if __name__ == '__main__':
     species = optdesc[1]
     lut = Lookup_Table(species)
     f_M = lut.equivalent_maxwellian(fi)
+    n_M = f_M.density()
+    t_M = f_M.scalar_temperature()
+
+    # Check if they are below the grid resolution
+    n_err = (ni - n_M) / ni   # is this smaller than ∆n/n?
+    t_err = (ti - t_M) / ti   # is this smaller than ∆t/t?
+
+    # Create the look-up table
+    lut.set_grid(ni, ti) # already in lut.apply, but good to test separately
+    
+    lut.fill_grid(fi) # already in lut.apply, but good to test separately
+    
+    lut.apply() # Does not exist yet
