@@ -30,7 +30,7 @@ def curl(K, V):
         return curl
 
 
-def De(sc,mode,species,t0,t1):
+def De_total(sc,mode,species,t0,t1):
     optdesc = 'd{0}s-moms'.format(species)
     #should it be brst or srvy?
     data = fpi.load_moms(sc=sc, mode=mode, optdesc=optdesc, start_date=t0, end_date=t1)
@@ -74,15 +74,15 @@ def De(sc,mode,species,t0,t1):
 
     fig, axes = plt.subplots(nrows=4, ncols=1, squeeze=False)
 
-# Current Density
+
     ax = axes[0,0]
     D.loc[:,'x'].plot(ax=ax, label='x')
     D.loc[:,'y'].plot(ax=ax, label='y')
     D.loc[:,'z'].plot(ax=ax, label='z')
-    ax.set_title('Application of Reciprocal Vectors')
+    ax.set_title('Electron Frame Dissipation Rate')
     ax.set_xlabel('')
     ax.set_xticklabels([''])
-    ax.set_ylabel('J [$\\mu A/m^{2}$]')
+    ax.set_ylabel('De [$\\mu A/m^{2}$]')
     ax.legend()
     ax = axes[1,0]
     D.loc[:,'x'].plot(ax=ax, label='x')
@@ -138,10 +138,10 @@ def De(sc,mode,species,t0,t1):
     D1.loc[:,'x'].plot(ax=ax, label='x')
     D1.loc[:,'y'].plot(ax=ax, label='y')
     D1.loc[:,'z'].plot(ax=ax, label='z')
-    ax.set_title('Application of Reciprocal Vectors')
+    ax.set_title('Electron Frame Dissipation Rate')
     ax.set_xlabel('')
     ax.set_xticklabels([''])
-    ax.set_ylabel('J [$\\mu A/m^{2}$]')
+    ax.set_ylabel('De [$\\mu A/m^{2}$]')
     ax.legend()
     ax = axes[1,0]
     D1.loc[:,'x'].plot(ax=ax, label='x')
@@ -153,10 +153,10 @@ def De(sc,mode,species,t0,t1):
     D.loc[:,'x'].plot(ax=ax, label='x')
     D.loc[:,'y'].plot(ax=ax, label='y')
     D.loc[:,'z'].plot(ax=ax, label='z')
-    ax.set_title('Application of Reciprocal Vectors')
+    ax.set_title('Electron Frame Dissipation Rate')
     ax.set_xlabel('')
     ax.set_xticklabels([''])
-    ax.set_ylabel('J [$\\mu A/m^{2}$]')
+    ax.set_ylabel('De [$\\mu A/m^{2}$]')
     ax.legend()
     ax = axes[1,1]
     D.loc[:,'x'].plot(ax=ax, label='x')

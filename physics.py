@@ -39,10 +39,17 @@ def convection_efield(v, B):
                                        (v[:,2]*B[:,0] - v[:,0]*B[:,2]),
                                        (v[:,0]*B[:,1] - v[:,1]*B[:,0])], axis=1),
                             dims=('time', 'component'),
-                            coords={'time': v['time'],
-                                    'component': ['x', 'y', 'z']}
-                            )
-
+                           coords={'time': v['time'],
+                                   'component': ['x', 'y', 'z']}
+                         )
+  #  Ec_components = 1e-3 * np.stack([(Ue[:, 1] * B[:, 2] - Ue[:, 2] * B[:, 1]),
+   #                                  (Ue[:, 2] * B[:, 0] - Ue[:, 0] * B[:, 2]),
+    #                                 (Ue[:, 0] * B[:, 1] - Ue[:, 1] * B[:, 0])], axis=1)
+    
+    # Create the DataArray for Ec
+  #  Ec = xr.DataArray(Ec_components, dims=('time', 'component'),
+              #        coords={'time': des_mms['time'], 'component': ['x', 'y', 'z']})
+#
     return Ec
 
 
@@ -165,6 +172,15 @@ def De_moms(E, B, n, Vi, Ve):
     '''
     
     # Electric field in the electron rest frame
+
+    #Ec = xr.Dataset()
+   # for idx, (vname, Bname) in enumerate(zip(Ve, B)):
+      # Ec['Ec{0}'.format(idx)] = convection_efield(Ve[vname], B[Bname])
+    
+  #  Electric field in the electron rest frame
+   #E_prime = barycentric_avg(E) + barycentric_avg(Ec)
+
+    
     Ec = convection_efield(Ve, B)
     E_prime = E + Ec
 
@@ -596,6 +612,9 @@ def devoriak_pressure(R, U, p, P):
     # Gradient of the bulk velocity
     gradU = gradient(k.rename(component='comp1'), U.rename(component='comp2'))
 
+    
+    #i added this
+    #k=recip_vec(R)
     # Theta - divergence of the bulk velocity
     divU = divergence(k, U)
 

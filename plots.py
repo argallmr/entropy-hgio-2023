@@ -338,7 +338,7 @@ def dissipation_measures(t0, t1, mode='srvy', t_smooth=None):
     pE_rel = pE_rel.sel(time=slice(pE_rel['time'][3].data, None))
 
     # Plot the data
-    fig, axes = plt.subplots(nrows=4, ncols=1, squeeze=False)
+    fig, axes = plt.subplots(nrows=4, ncols=1, squeeze=False, figsize=(7, 2))
     plt.subplots_adjust(left=0.18, right=0.88, top=0.98, bottom=0.15)
     
     # Electron Frame Dissipation Measure
