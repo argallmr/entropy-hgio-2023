@@ -4,7 +4,7 @@ import numpy as np
 from scipy import constants as c
 from pathlib import Path
 
-from pymms.data import util, fgm, edp, fpi
+from pymms.data import util, fgm, edp, fpi, edi
 from pymms import config
 
 import tools, physics
@@ -98,14 +98,20 @@ def load_data(t0, t1, mode='brst', dt_out=np.timedelta64(30, 'ms')):
         return fname
 
     # Get the data from each spacecraft
-    mec_data = get_data('mec', mode, t0, t1, dt_out)
-    fgm_data = get_data('fgm', mode, t0, t1, dt_out)
-    edp_data = get_data('edp', mode, t0, t1, dt_out)
     des_data = get_data('des', mode, t0, t1, dt_out)
     dis_data = get_data('dis', mode, t0, t1, dt_out)
+    edi_data = get_data('edi', mode, t0, t1, dt_out)
+    edp_data = get_data('edp', mode, t0, t1, dt_out)
+    fgm_data = get_data('fgm', mode, t0, t1, dt_out)
+    mec_data = get_data('mec', mode, t0, t1, dt_out)
 
     # Combine into a single dataset
-    data = xr.merge([mec_data, fgm_data, edp_data, des_data, dis_data])
+    try:
+        data = xr.merge([des_data, dis_data, edi_data,
+                         edp_data, fgm_data, mec_data])
+    except:
+        import pdb
+        pdb.set_trace()
 
     # Save to data file
     data.to_netcdf(fname)
@@ -159,6 +165,10 @@ def get_data(instr, mode, t0, t1, dt_out=np.timedelta64(30, 'ms')):
         func = get_dis_data
         method = 'interp_gaps' # Resample 150ms to 30ms; Nearest w/gap detection
         extrapolate = True
+    elif instr == 'edi':
+        func = get_edi_data
+        method = 'None'
+        extrapolate = True
     else:
         raise ValueError('Instrument {0} not recognized'.format(instr))
     
@@ -171,7 +181,11 @@ def get_data(instr, mode, t0, t1, dt_out=np.timedelta64(30, 'ms')):
     # Get the data from each spacecraft
     for sc in spacecraft:
         # Load the data
-        data = func(sc, mode, t0, t1)
+        try:
+            data = func(sc, mode, t0, t1)
+        except:
+            print('No data for {0}_{1}_{2}_{3}_{4}'.format(sc, instr, mode, t0, t1))
+            continue
 
         # Resample the data to a common time stamp
         data = tools.resample(data, t0, t1, dt_out,
@@ -181,7 +195,7 @@ def get_data(instr, mode, t0, t1, dt_out=np.timedelta64(30, 'ms')):
         try:
             ds[data.name] = data
         except AttributeError:
-            ds = xr.merge([ds, data])               
+            ds = xr.merge([ds, data])
     
     return ds
 
@@ -221,15 +235,17 @@ def get_mec_data(sc, mode, t0, t1):
     # Select the position in GSE coordinates
     #   - Standardize time and componets
     #   - dt_plus is required by tools.resample to determine sample rate
-    r_data = (r_data[sc+'_mec_r_gse']
+    #   - Use unique names for variables from each spacecraft
+    r_data = (r_data[[sc+'_mec_r_gse', sc+'_mec_mlat', sc+'_mec_mlt', sc+'_mec_l_dipole']]
               .rename({'Epoch': 'time',
-                       sc+'_mec_r_gse_label': 'component'})
+                       sc+'_mec_r_gse_label': 'component',
+                       sc+'_mec_r_gse': 'r' + sc[-1] + '_GSE',
+                       sc+'_mec_mlat': 'mlat' + sc[-1],
+                       sc+'_mec_mlt': 'mlt' + sc[-1],
+                       sc+'_mec_l_dipole': 'l' + sc[-1],})
               .assign_coords({'component': ['x', 'y', 'z'],
                               'dt_plus': np.timedelta64(int(30e9), 'ns')})
               )
-
-    # Name with the spacecraft number to make it unique
-    r_data.name = 'r' + sc[-1]
 
     return r_data
 
@@ -274,6 +290,67 @@ def get_fgm_data(sc, mode, t0, t1):
     b_data.name = 'B' + sc[-1]
 
     return b_data
+
+def get_edi_data(sc, mode, t0, t1):
+    '''
+    Load EDI data. Time tags of EDI data are moved to the beginning of the
+    accumulation interval to facilitate binning of other data products.
+    Parameters
+    ----------
+    sc : str
+        Spacecraft identifier: {'mms1', 'mms2', 'mms3', 'mms4'}
+    mode : str
+        Data rate mode: {'srvy', 'slow', 'fast', 'brst'}
+    level : str
+        Data level: {'l1a', 'l2'}
+    t0, t1: `datetime.datetime`
+        Start and end of the data interval
+    binned : bool
+        Bin/average data into 5-minute intervals
+    Returns
+    -------
+    edi_data : `xarray.Dataset`
+        EDI electric field data
+    '''
+
+    level = 'l2'
+    tm_vname = '_'.join((sc, 'edi', 't', 'delta', 'minus', mode, level))
+    tp_vname = '_'.join((sc, 'edi', 't', 'delta', 'plus', mode, level))
+
+    # Get EDI data
+    # edi_data = edi.load_data(sc, mode, level, optdesc='efield', start_date=ti, end_date=te)
+    edi_data = edi.load_efield(sc=sc, mode=mode, level=level, start_date=t0, end_date=t1)
+
+    # Timestamps begin on 0's and 5's and span 5 seconds. The timestamp is at
+    # the weighted mean of all beam hits. To get the beginning of the timestamp,
+    # subtract the time's DELTA_MINUS. But this is inaccurate by a few nanoseconds
+    # so we have to round to the nearest second.
+    edi_time = edi_data['Epoch'] - edi_data[tm_vname].astype('timedelta64[ns]')
+    edi_time = [(t - tdelta)
+                if tdelta.astype(int) < 5e8
+                else (t + np.timedelta64(1, 's') - tdelta)
+                for t, tdelta in zip(edi_time.data, edi_time.data - edi_time.data.astype('datetime64[s]'))
+                ]
+
+    # Replace the old time data with the corrected time data
+    edi_data['Epoch'] = edi_time
+    edi_data = edi_data.assign_coords({'dt_plus': np.timedelta64(int((edi_data[tm_vname]
+                                                                      + edi_data[tp_vname]
+                                                                      ).mean()), 'ns')}
+                                      )
+
+    # Rename Epoch to time for consistency across all data files
+    edi_data = (edi_data[['E_GSE', 'V_GSE', 'dt_plus']]
+                .drop('V_index')
+                .rename({'Epoch': 'time',
+                         'E_index': 'component',
+                         'V_index': 'component',
+                         'E_GSE': 'E'+sc[-1]+'_GSE',
+                         'V_GSE': 'V'+sc[-1]+'_GSE'})
+                .assign_coords({'component': ['x', 'y', 'z']})
+                )
+
+    return edi_data
 
 
 def get_edp_data(sc, mode, t0, t1):

@@ -56,7 +56,7 @@ def binned_avg_ds(ds, t_out):
         # Reshape the variable to be 2D
         if var_ndim == 1:
             var = var.expand_dims('temp', axis=1)
-        else:
+        elif var_ndim > 2:
             var = var.stack(temp=var_dims[1:])
         
         # scipy does not like datetimes/timedelta of any type so convert to float
@@ -67,25 +67,24 @@ def binned_avg_ds(ds, t_out):
         temp_vars = []
         for idx in range(var.shape[1]):
             temp_vars.append(ds_bin_avg(var.data[:,idx]))
-            
+        
         # Reshape the data back to how it was
         temp_vars = np.column_stack(temp_vars)
         if var_ndim == 1:
             temp_vars = temp_vars.squeeze()
-        else:
+        elif var_ndim > 2:
             temp_vars = temp_vars.reshape(var_shape)
+            var = var.unstack()
         
         # Convert back to datetime/timedelta
         if np.issubdtype(var_dtype, np.timedelta64):
             temp_vars = temp_vars.astype(np.timedelta64)
-            
+
         # Combine bin-averaged components into an array
         temp = xr.DataArray(temp_vars,
                             dims=var_dims,
-                            coords=({'time': t_out[:-1]}.update(
-                                    {key: value 
-                                    for key, value in var.coords.items()
-                                    if key != var_dims[0]})),
+                            coords={key: value if key != var_dims[0] else t_out[:-1]
+                                    for key, value in var.coords.items()},
                             name=name)
         
         # Save the variables in the output dictionary
