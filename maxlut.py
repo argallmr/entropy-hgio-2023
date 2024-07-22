@@ -2,6 +2,11 @@ import numpy as np
 import xarray as xr
 from pymms.data import fpi
 from scipy import constants
+
+import matplotlib as mpl
+from matplotlib import pyplot as plt, dates as mdates, cm, ticker
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
     
 eV2K = constants.value('electron volt-kelvin relationship')
 eV2J = constants.eV
@@ -57,8 +62,8 @@ class Lookup_Table():
             n = self.density()
         
         # Integrate over azimuth angle
-        vx = np.cos(self.lut['phi'] * self.lut).integrate('phi')
-        vy = np.sin(self.lut['phi'] * self.lut).integrate('phi')
+        vx = (np.cos(self.lut['phi']) * self.lut).integrate('phi')
+        vy = (np.sin(self.lut['phi']) * self.lut).integrate('phi')
         vz = self.lut.integrate('phi')
 
         # Integrate over polar angle
@@ -507,16 +512,13 @@ class Lookup_Table():
 
         # Minimize error in both density and temperature
         elif method == 'nt':
-            import pdb
-            pdb.set_trace()
-            
             imin = np.argmin(np.sqrt((self.t_lut - t)**2
-                                    + (self.n_lut - n)**2
-                                    ))
+                                     + (self.n_lut.data - n)**2
+                                     ))
             irow = imin // dims[1]
             icol = imin % dims[1]
-            n_M = self.n_lut[irow, icol]
-            t_M = self.n_lut[irow, icol]
+            n_M = self.n_lut[irow, icol].data
+            t_M = self.t_lut[irow, icol]
             f_M = self.lut[irow, icol, ...]
         
         # Interpolate
@@ -539,25 +541,8 @@ class Lookup_Table():
                   't_err = {1:0.4f}'
                   .format(n_err, t_err))
 
-        import pdb
-        pdb.set_trace()
-        
-        # return f_M, n_M, t_M
+        return f_M, n_M, t_M
 
-        return xr.Dataset({'time': ('time', n['time'].data),
-                        'phi': (('time', 'phi_index'), f['phi'].data),
-                        'theta': ('theta', f['theta'].data),
-                        'energy': (('time', 'energy_index'), f['energy'].data),
-                        'U': (('time', 'energy_index'), f['U'].data),
-                        'n_M': ('time', n_M),
-                        't_M': ('time', t_M),
-                        's_M': ('time', s_M),
-                        'sV_M': ('time', sV_M),
-                        'f_M': (('time', 'phi_index', 'theta', 'energy_index'), f_M)
-                        }).set_coords(['phi', 'energy', 'U'])
-
-
-    
     @staticmethod
     def species_to_mass(species):
         '''
@@ -583,6 +568,99 @@ class Lookup_Table():
                             )
         
         return mass
+
+    def plot(self, n, t, n_EM, t_EM, n_M, t_M, inset_loc='NE'):
+        species = optdesc[1]
+        
+        # Find the error in n and T between the Maxwellian and Measured
+        # distribution
+        dn_lut = (n - self.n_lut) / n * 100.0
+        dt_lut = (t - self.t_lut) / t * 100.0
+
+        if inset_loc == 'NE':
+            inset_loc = [0.5, 0.5, 0.47, 0.47] # [x0, y0, width, height]
+        elif inset_loc == 'SE':
+            inset_loc = [0.0, 0.5, 0.47, 0.47]
+        elif inset_loc == 'NW':
+            inset_loc = [0.0, 0.5, 0.47, 0.47]
+        elif inset_loc == 'SW':
+            inset_loc = [0.0, 0.0, 0.47, 0.47]
+        
+        fig, axes = plt.subplots(nrows=1, ncols=2, squeeze=False, figsize=(8.5, 4))
+        plt.subplots_adjust(wspace=0.9)
+
+        #
+        # 2D Density LUT
+        #
+
+        ax = axes[0,0]
+        img = ax.pcolormesh(self.n_data, self.t_data, self.n_lut)
+        ax.set_title('')
+        ax.set_xlabel('$n_{'+species+'}$ ($cm^{-3}$)')
+        ax.set_xscale('log')
+        ax.set_ylabel('$t_{'+species+'}$ (eV)')
+        ax.set_yscale('log')
+        ax.minorticks_on()
+
+        # Create a colorbar that is aware of the image's new position
+        divider = make_axes_locatable(ax)
+        cax = divider.new_horizontal(size="5%", pad=0.1)
+        fig.add_axes(cax)
+        cb = fig.colorbar(img, cax=cax, orientation="vertical")
+        cb.set_label('$n_{'+species+'} [cm^{-3}]$')
+        cb.ax.minorticks_on()
+    
+        # Plot the location of the measured density and temperature
+        ax.plot(n, t, linestyle='None', marker='x', color='black')
+        ax.plot(n_M, t_M, linestyle='None', marker=r'$\mathrm{M}$', color='black')
+        ax.plot(n_EM, t_EM, linestyle='None', marker=r'$\mathrm{E}$', color='black')
+
+        '''
+        # Inset axes to show 
+        x1, x2, y1, y2 = 0.95*n, 1.05*n, 0.95*t, 1.05*t
+        axins = ax.inset_axes(inset_loc,
+                              xlim=(x1, x2), ylim=(y1, y2),
+                              xticklabels=[], yticklabels=[])
+        img = axins.pcolormesh(self.n_data, self.t_data, self.n_lut)
+        # img = N_lut.plot(ax=axins, cmap=cm.get_cmap('rainbow', 15), add_colorbar=False, edgecolor='k')
+        axins.set_xlabel('')
+        axins.set_xlim(x1, x2)
+        axins.set_ylabel('')
+        axins.set_ylim(y1, y2)
+        # axins.imshow(lut.N.data, extent=extent, cmap=cm.get_cmap('rainbow', 15), origin="lower")
+        ax.indicate_inset_zoom(axins, edgecolor="black")
+    
+        # Plot the location of the measured density and temperature
+        axins.plot(n, t, linestyle='None', marker='x', color='black')
+        axins.plot(n_M, t_M, linestyle='None', marker=r'$\mathrm{M}$', color='black')
+        axins.plot(n_EM, t_EM, linestyle='None', marker=r'$\mathrm{E}$', color='black')
+        '''
+
+        #
+        # 2D Temperature LUT
+        #
+        ax = axes[0,1]
+        img = ax.pcolormesh(self.n_data, self.t_data, self.t_lut)
+        ax.set_title('')
+        ax.set_xlabel('$n_{'+species+'}$ ($cm^{-3}$)')
+        ax.set_xscale('log')
+        ax.set_ylabel('$t_{'+species+'}$ (eV)')
+        ax.set_yscale('log')
+
+        # Create a colorbar that is aware of the image's new position
+        divider = make_axes_locatable(ax)
+        cax = divider.new_horizontal(size="5%", pad=0.1)
+        fig.add_axes(cax)
+        cb = fig.colorbar(img, cax=cax, orientation="vertical")
+        cb.set_label('$t_{'+species+'} [cm^{-3}]$')
+        cb.ax.minorticks_on()
+    
+        # Plot the location of the measured density and temperature
+        ax.plot(n, t, linestyle='None', marker='x', color='black')
+        ax.plot(n_M, t_M, linestyle='None', marker=r'$\mathrm{M}$', color='black')
+        ax.plot(n_EM, t_EM, linestyle='None', marker=r'$\mathrm{E}$', color='black')
+        
+        return fig, axes
 
 
 if __name__ == '__main__':
@@ -631,6 +709,10 @@ if __name__ == '__main__':
         print('n_err = {0:0.4f}\n'
               't_err = {1:0.4f}'
               .format(n_err, t_err))
-    
+
     # Apply the look-up table to the distribution
-    f_M, n_M, t_M = lut.apply(fi, n=ni, t=ti) # Does not exist yet
+    f_M, n_lut, t_lut = lut.apply(fi, n=ni, t=ti) # Does not exist yet
+
+    # Plot the results
+    fig, axes = lut.plot(ni, ti, n_M, t_M, n_lut, t_lut)
+    plt.show()
