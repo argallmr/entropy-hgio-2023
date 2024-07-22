@@ -6,6 +6,7 @@ from scipy import constants
 eV2K = constants.value('electron volt-kelvin relationship')
 eV2J = constants.eV
 kB   = constants.k
+K2eV = constants.value('kelvin-electron volt relationship')
 
 class Lookup_Table():
 
@@ -29,6 +30,115 @@ class Lookup_Table():
         self.deltat_t = deltat_t
         self.mass = self.species_to_mass(species)
     
+    def density(self):
+        
+        # Integrate the azimuthal angle
+        n = self.lut.integrate('phi')
+
+        # Integrate over polar angle
+        n = (np.sin(n['theta']) * n).integrate('theta')
+
+        # Integrate over energy
+        #   - U ranges from [0, inf] and np.inf/np.inf = nan
+        #   - Set the last element of the energy dimension of y to 0
+        with np.errstate(invalid='ignore', divide='ignore'):
+            y = np.sqrt(self.lut['U']) / (1-self.lut['U'])**(5/2)    
+        # the DataArray version of where, other is unimplemented
+        y = np.where(np.isfinite(y), y, 0)
+
+        coeff = 1e6 * np.sqrt(2) * (eV2J * self.lut.attrs['E0'] / self.mass)**(3/2)
+        n = coeff * (y * n).integrate('U')
+
+        return n
+
+    def velocity(self, n=None):
+
+        if n is None:
+            n = self.density()
+        
+        # Integrate over azimuth angle
+        vx = np.cos(self.lut['phi'] * self.lut).integrate('phi')
+        vy = np.sin(self.lut['phi'] * self.lut).integrate('phi')
+        vz = self.lut.integrate('phi')
+
+        # Integrate over polar angle
+        vx = (np.sin(self.lut['theta'])**2 * vx).integrate('theta')
+        vy = (np.sin(self.lut['theta'])**2 * vy).integrate('theta')
+        vz = (np.cos(self.lut['theta']) * np.sin(self.lut['theta']) * vz).integrate('theta')
+
+        # Integrate over energy
+        #   - U ranges from [0, 1] and 0/0 = nan
+        #   - Set the last element of the energy dimension of y to 0
+        with np.errstate(divide='ignore', invalid='ignore'):
+            y = self.lut['U'] / (1 - self.lut['U'])**3
+        y = np.where(np.isfinite(y), y, 0)
+    
+        coeff = -1e3 * 2 * (eV2J * self.lut.attrs['E0'] / self.mass)**2 / n
+        vx = coeff * (y * vx).integrate('U')
+        vy = coeff * (y * vy).integrate('U')
+        vz = coeff * (y * vz).integrate('U')
+
+        return np.stack([vx, vy, vz], axis=2)
+
+    def temperature(self, n=None, V=None):
+        
+        if n is None:
+            n = self.density()
+        if V is None:
+            V = self.velocity()
+        
+        # Integrate over azimuth angle
+        Txx = (np.cos(self.lut['phi'])**2 * self.lut).integrate('phi')
+        Tyy = (np.sin(self.lut['phi'])**2 * self.lut).integrate('phi')
+        Tzz = self.lut.integrate('phi')
+        Txy = (np.cos(self.lut['phi']) * np.sin(self.lut['phi']) * self.lut).integrate('phi')
+        Txz = (np.cos(self.lut['phi']) * self.lut).integrate('phi')
+        Tyz = (np.sin(self.lut['phi']) * self.lut).integrate('phi')
+
+        # Integreate over polar angle
+        #   - trapz returns a ndarray so use np.trapz() instead of DataArray.inegrate()
+        #   - Dimensions should now be: before: [time, theta, energy], after: [time, energy]
+        Txx = (np.sin(self.lut['theta'])**3 * Txx).integrate('theta')
+        Tyy = (np.sin(self.lut['theta'])**3 * Tyy).integrate('theta')
+        Tzz = (np.cos(self.lut['theta'])**2 * np.sin(self.lut['theta']) * Tzz).integrate('theta')
+        Txy = (np.sin(self.lut['theta'])**3 * Txy).integrate('theta')
+        Txz = (np.cos(self.lut['theta']) * np.sin(self.lut['theta'])**2 * Txz).integrate('theta')
+        Tyz = (np.cos(self.lut['theta']) * np.sin(self.lut['theta'])**2 * Tyz).integrate('theta')
+
+        # Create a temperature tensor
+        T = np.stack([np.stack([Txx, Txy, Txz], axis=3),
+                      np.stack([Txy, Tyy, Tyz], axis=3),
+                      np.stack([Txz, Tyz, Tzz], axis=3)
+                      ], axis=4
+                     )
+    
+        # Create a velocity tensor
+        Vij = np.stack((np.stack([V[:,:,0]*V[:,:,0], V[:,:,0]*V[:,:,1], V[:,:,0]*V[:,:,2]], axis=2),
+                        np.stack([V[:,:,1]*V[:,:,0], V[:,:,1]*V[:,:,1], V[:,:,1]*V[:,:,2]], axis=2),
+                        np.stack([V[:,:,2]*V[:,:,0], V[:,:,2]*V[:,:,1], V[:,:,2]*V[:,:,2]], axis=2)),
+                       axis=3)
+        
+        # Integrate over energy
+        with np.errstate(divide='ignore', invalid='ignore'):
+            y = self.lut['U']**(3/2) / (1 - self.lut['U'])**(7/2)
+        y = np.where(np.isfinite(y), y, 0)
+
+        coeff = 1e6 * (2/self.mass)**(3/2) / (n * kB / K2eV) * (self.lut.attrs['E0']*eV2J)**(5/2)
+        T = (coeff.data[..., np.newaxis, np.newaxis]
+             * np.trapz(y[np.newaxis, np.newaxis, :, np.newaxis, np.newaxis]
+                        * T, self.lut['U'], axis=2)
+             - (1e6 * self.mass / kB * K2eV * Vij)
+             )
+
+        return T
+
+    def scalar_temperature(self, n=None, V=None, T=None):
+        
+        if T is None:
+            T = self.temperature(n=n, V=V)
+        return (T[:,:,0,0] + T[:,:,1,1] + T[:,:,2,2]) / 3.0
+
+    
     @staticmethod
     def deltaE(energy):
         '''
@@ -50,15 +160,14 @@ class Lookup_Table():
         return dE
 
     # Maybe static method?
-    def equivalent_maxwellian(self, f, n=None, t=None):
+    def equivalent_maxwellian(self, f, n=None, V=np.zeros((3,)), t=None):
         
         if n is None:
             n = f.density()
         if t is None:
-            t = f.scalar_temperature(n=n)
+            t = f.scalar_temperature(n=n, V=V)
 
-        f_M = f.maxwellian(n, t,
-                           phi=f.phi, theta=f.theta, energy=f.energy)
+        f_M = f.maxwellian(n=n, V=V, t=t)
 
         return f_M
 
@@ -132,10 +241,11 @@ class Lookup_Table():
     def fill_grid(self, f, **kwargs):
 
         # Fill the grid with Maxwellian distributions
-        self.lut = self.maxwellian(phi=f.phi, theta=f.theta, energy=f.energy)
+        self.lut = self.maxwellian(f=f)
 
-        # Precondition the distribution functions
-        self.precondition(**kwargs)
+        # Calculate the density and temperature of the grid
+        self.n_lut = self.density()
+        self.t_lut = self.scalar_temperature(n=self.n_lut)
 
 
     def set_grid(self, n, t):
@@ -149,8 +259,10 @@ class Lookup_Table():
         t : float
             Scalar temperature around which to create the grid
         '''
-        n_range = [0.9, 1.1] * n
-        t_range = [0.9, 1.1] * t
+
+        # This does not have to be much bigger than deltan_n or deltat_t
+        n_range = np.array([0.9, 1.1]) * n
+        t_range = np.array([0.9, 1.1]) * t
 
         n_data, t_data = self.grid_coords(n_range, t_range)
         n_data, t_data = np.meshgrid(n_data, t_data, indexing='ij')
@@ -215,7 +327,7 @@ class Lookup_Table():
         delta = 10**((np.log10(lim[1]) - np.log10(lim[0])) / N) - 1
         return delta
     
-    def maxwellian(self,
+    def maxwellian(self, f=None,
                    phi=None, theta=None, energy=None,
                    phi_range=(0, 360), theta_range=(0, 180), energy_range=(10, 30000),
                    nphi=32, ntheta=16, nenergy=32):
@@ -244,6 +356,11 @@ class Lookup_Table():
         #
         # Establish the velocity-space grid in energy coordinates
         #
+
+        if f is not None:
+            phi = f._phi
+            theta = f._theta
+            energy = f._energy
         
         if phi is None:
             dphi = (phi_range[1] - phi_range[0]) / nphi
@@ -257,11 +374,13 @@ class Lookup_Table():
             energy = np.logspace(energy_range[0], energy_range[1], nenergy, endpoint=False)
             denergy = self.deltaE(energy)
         
-        if V is None:
-            V = np.zeros((3,))
+        # Velocity does not factor into the entropy of a Maxwellian distribution
+        V = np.zeros((3,))
 
         # Calculate the velocity of each energy bin
         #   - Assume non-relativistic: E = 1/2 m v^2
+        #   - If the distribution has been preconditioned, energy will have
+        #     endpoints 0 and inf. The inf will trigger a NaN below
         v_mag = np.sqrt(2.0 * eV2J / self.mass * energy)  # m/s
         
         # Expand into a grid
@@ -273,10 +392,12 @@ class Lookup_Table():
         
         # Comput the components of the look directions of each energy bin
         #   - Negate so that the directions are incident into the detector
-        vxsqr = (-v_mag * np.sin(theta) * np.cos(phi) - (1e3*V[0]))**2
-        vysqr = (-v_mag * np.sin(theta) * np.sin(phi) - (1e3*V[1]))**2
-        vzsqr = (-v_mag * np.cos(theta) - (1e3*V[2]))**2
-        
+        #   - Ignore multiplies by inf
+        with np.errstate(invalid='ignore'):
+            vxsqr = (-v_mag * np.sin(theta) * np.cos(phi) - (1e3*V[0]))**2
+            vysqr = (-v_mag * np.sin(theta) * np.sin(phi) - (1e3*V[1]))**2
+            vzsqr = (-v_mag * np.cos(theta) - (1e3*V[2]))**2
+
         #
         # Expand the LUT grid and Maxwellian targets so they can be broadcast
         # together
@@ -284,8 +405,8 @@ class Lookup_Table():
 
         # Velocity targets need 2 new dimensions for the LUT coordinates
         vxsqr = vxsqr[np.newaxis, np.newaxis, ...]
-        vxsqr = vxsqr[np.newaxis, np.newaxis, ...]
-        vxsqr = vxsqr[np.newaxis, np.newaxis, ...]
+        vysqr = vysqr[np.newaxis, np.newaxis, ...]
+        vzsqr = vzsqr[np.newaxis, np.newaxis, ...]
 
         # LUT coordinates need 3 new dimensions for the velocity targets
         n_data = self.n_data[..., np.newaxis, np.newaxis, np.newaxis]
@@ -296,24 +417,41 @@ class Lookup_Table():
         #
 
         f_M = (1e-6 * n_data
-               * (self.mass / (2 * np.pi * kB * eV2K * t))**(3.0/2.0)
+               * (self.mass / (2 * np.pi * kB * eV2K * t_data))**(3.0/2.0)
                * np.exp(-self.mass * (vxsqr + vysqr + vzsqr)
                        / (2.0 * kB * eV2K * t_data))
                )
+    
+        # If there is high energy extrapolation, the last velocity bin will be
+        # infinity, making the Maxwellian distribution inf or nan (inf*0=nan).
+        # Make the distribution zero at v=inf.
+        f_M = np.where(np.isfinite(f_M), f_M, 0)
 
         f_M = xr.DataArray(f_M,
                            name='max_lut',
                            dims=('n_data', 't_data', 'phi', 'theta', 'energy'),
                            coords={'n_data': self.n_data[:,0],
                                    't_data': self.t_data[0,:],
-                                   'phi': phi,
-                                   'theta': theta,
-                                   'energy': energy}
+                                   'phi': phi[:,0,0],
+                                   'theta': theta[0,:,0],
+                                   'energy': energy,
+                                   'U': (('energy',), f._U)}
                            )
+
+        f_M.attrs['E0'] = f.E0
+        f_M.attrs['E_low'] = f.E_low
+        f_M.attrs['E_high'] = f.E_high
+        f_M.attrs['scpot'] = f.scpot
+        f_M.attrs['mass'] = f.mass
+        f_M.attrs['time'] = f.time
+        f_M.attrs['wrap_phi'] = f.wrap_phi
+        f_M.attrs['theta_extrapolation'] = f.theta_extrapolation
+        f_M.attrs['high_energy_extrapolation'] = f.high_energy_extrapolation
+        f_M.attrs['low_energy_extrapolation'] = f.low_energy_extrapolation
 
         return f_M
 
-    def apply(self, f, n=None, t=None, fname=None):
+    def apply(self, f, n=None, t=None, method='nt'):
         '''
         Create a look-up table of Maxwellian distributions based on density and
         temperature.
@@ -344,101 +482,81 @@ class Lookup_Table():
         self.set_grid(n, t)
 
         # Fill the grid with Maxwellian distributions
-        self.fill_grid()
+        self.fill_grid(f)
 
-        dens, temp = grid(n_range, t_range, deltan_n=deltan_n, deltat_t=deltat_t)
-        vel = xr.DataArray(np.zeros((1,3)),
-                        dims=['time', 'velocity_index'],
-                        coords={'velocity_index': ['Vx', 'Vy', 'Vz']})
+        # Dimensions of the look-up table
+        dims = self.n_lut.shape
+
+        # Minimize density error
+        if method == 'n':
+            imin = np.argmin(np.abs(self.n_lut - n))
+            irow = imin // dims[1]
+            icol = imin % dims[1]
+            n_M = self.n_lut[irow, icol]
+            t_M = self.t_lut[irow, icol]
+            f_M = self.lut[irow, icol, ...]
+
+        # Minimize temperature error
+        elif method == 't':
+            imin = np.argmin(np.abs(self.t_lut - t))
+            irow = imin // dims[1]
+            icol = imin % dims[1]
+            n_M = self.n_lut[irow, icol]
+            t_M = self.t_lut[irow, icol]
+            f_M = self.lut[irow, icol, ...]
+
+        # Minimize error in both density and temperature
+        elif method == 'nt':
+            import pdb
+            pdb.set_trace()
+            
+            imin = np.argmin(np.sqrt((self.t_lut - t)**2
+                                    + (self.n_lut - n)**2
+                                    ))
+            irow = imin // dims[1]
+            icol = imin % dims[1]
+            n_M = self.n_lut[irow, icol]
+            t_M = self.n_lut[irow, icol]
+            f_M = self.lut[irow, icol, ...]
         
-        # lookup_table = xr.zeros_like(dist.squeeze()).expand_dims({'N': N, 'T': T})
-        lookup_table = np.zeros((N, M, *np.squeeze(dist).shape))
-        n_lookup = np.zeros((N, M))
-        v_lookup = np.zeros((N, M, 3))
-        t_lookup = np.zeros((N, M))
-        # s_lookup = np.zeros(dims)
-        # sv_lookup = np.zeros(dims)
-        for jn, n in enumerate(dens):
-            for it, t in enumerate(temp):
-                f_M = maxwellian_distribution(dist, N=n, bulkv=vel, T=t)
-                n_M = density(f_M) # f_M.densit()
-                V_M = velocity(f_M, n=n_M)
-                t_M = scalar_temperature(f_M, n=n_M, V=V_M)
-                # s = entropy(f_max)
-                # sv = vspace_entropy(f_max, N=n, s=s)
-                
-                lookup_table[jn, it, ...] = f_M.squeeze()
-                n_lookup[jn, it] = n_M
-                v_lookup[jn, it, :] = V_M
-                t_lookup[jn, it] = t_M
-                # s_lookup[idens, itemp] = s
-                # sv_lookup[idens, itemp] = sv
+        # Interpolate
+        elif method == 'interp':
+            lut_interp = self.lut.interp({'n_data': n, 't_data': t}, method='linear')
+            n_M = lut_interp['n']
+            t_M = lut_interp['t']
+            f_M = lut_interp['f']
         
-        
-        # Maxwellian density, velocity, and temperature are functions of input data
-        dens = xr.DataArray(dens, dims=('n_data',), attrs={'err': deltan_n})
-        temp = xr.DataArray(temp, dims=('t_data',), attrs={'err': deltat_t})
-        n = xr.DataArray(n_lookup,
-                        dims = ('n_data', 't_data'),
-                        coords = {'n_data': dens,
-                                't_data': temp})
-        V = xr.DataArray(v_lookup,
-                        dims = ('n_data', 't_data', 'v_index'),
-                        coords = {'n_data': dens,
-                                't_data': temp,
-                                'v_index': ['Vx', 'Vy', 'Vz']})
-        t = xr.DataArray(t_lookup,
-                        dims = ('n_data', 't_data'),
-                        coords = {'n_data': dens,
-                                't_data': temp})
-        
-        # delete duplicate data
-        del n_lookup, v_lookup, t_lookup
-        
-        
-        # The look-up table is a function of Maxwellian density, velocity, and
-        # temperature. This provides a mapping from measured data to discretized
-        # Maxwellian values
-        f = xr.DataArray(lookup_table,
-                        dims = ('n_data', 't_data', 'phi_index', 'theta', 'energy_index'),
-                        coords = {'n': n,
-                                't': t,
-                                'phi': dist['phi'].squeeze(),
-                                'theta': dist['theta'],
-                                'energy': dist['energy'].squeeze(),
-                                'U': dist['U'].squeeze(),
-                                'n_data': dens,
-                                't_data': temp})
-        '''
-        s = xr.DataArray(s_lookup,
-                        dims = ('N_data', 't_data'),
-                        coords = {'N': n,
-                                'T': t,
-                                'N_data': N,
-                                't_data': T})
-        
-        sv = xr.DataArray(sv_lookup,
-                        dims = ('N_data', 't_data'),
-                        coords = {'N': n,
-                                    'T': t,
-                                    'N_data': N,
-                                    't_data': T})
-        '''
-        
-        # Delete duplicate data
-        del lookup_table #, s_lookup, sv_lookup
-        
-        # Put everything into a dataset
-        ds = (xr.Dataset({'n': n, 'V': V, 't': t, 'f': f})
-            .reset_coords(names=['n', 't'])
-            )
-        #                 's': s, 'sv': sv})
-        
-        if fname is None:
-            return ds
+        n_err = np.abs(n - n_M) / n
+        t_err = np.abs(t - t_M) / t
+        if (n_err > self.deltan_n):
+            raise ValueError('Lookup table density error greater than allowed: '
+                             '{0:0.6f} > {1:0.6f}'.format(n_err, self.deltan_n))
+        elif (t_err > self.deltat_t):
+            raise ValueError('Lookup table density error greater than allowed: '
+                             '{0:0.6f} > {1:0.6f}'.format(t_err, self.deltat_t))
         else:
-            ds.to_netcdf(path=fname)
-            return fname
+            print('n_err = {0:0.4f}\n'
+                  't_err = {1:0.4f}'
+                  .format(n_err, t_err))
+
+        import pdb
+        pdb.set_trace()
+        
+        # return f_M, n_M, t_M
+
+        return xr.Dataset({'time': ('time', n['time'].data),
+                        'phi': (('time', 'phi_index'), f['phi'].data),
+                        'theta': ('theta', f['theta'].data),
+                        'energy': (('time', 'energy_index'), f['energy'].data),
+                        'U': (('time', 'energy_index'), f['U'].data),
+                        'n_M': ('time', n_M),
+                        't_M': ('time', t_M),
+                        's_M': ('time', s_M),
+                        'sV_M': ('time', sV_M),
+                        'f_M': (('time', 'phi_index', 'theta', 'energy_index'), f_M)
+                        }).set_coords(['phi', 'energy', 'U'])
+
+
     
     @staticmethod
     def species_to_mass(species):
@@ -485,29 +603,34 @@ if __name__ == '__main__':
                                 start_date=t0, end_date=t1, time=des_dist['time'])
     f = fpi.precondition(des_dist['dist'], **kwargs)
 
-    # Pick a time to create a Maxwellian distribution
     ti = np.datetime64('2017-07-11T22:34:02')
-    fi = fpi.Distribution_Function.from_fpi(f.sel(time=ti, method='nearest'))
+    scpot = kwargs.pop('scpot')
+    Vsci = scpot.sel(time=ti, method='nearest').data
+    f_fpi = des_dist['dist'].sel(time=ti, method='nearest')
+    fi = fpi.Distribution_Function.from_fpi(f_fpi, scpot=Vsci, **kwargs)
+    fi.precondition()
     ni = fi.density()
-    ti = fi.scalar_temperature()
-
-    import pdb
-    pdb.set_trace()
+    ti = fi.scalar_temperature(n=ni)
 
     # Create a Maxwellian distribution
     species = optdesc[1]
-    lut = Lookup_Table(species)
+    deltan_n = 0.005
+    deltat_t = 0.005
+    lut = Lookup_Table(deltan_n=deltan_n, deltat_t=deltat_t, species=species)
+
     f_M = lut.equivalent_maxwellian(fi)
     n_M = f_M.density()
     t_M = f_M.scalar_temperature()
 
     # Check if they are below the grid resolution
-    n_err = (ni - n_M) / ni   # is this smaller than ∆n/n?
-    t_err = (ti - t_M) / ti   # is this smaller than ∆t/t?
-
-    # Create the look-up table
-    lut.set_grid(ni, ti) # already in lut.apply, but good to test separately
+    n_err = np.abs(ni - n_M) / ni   # is this smaller than ∆n/n?
+    t_err = np.abs(ti - t_M) / ti   # is this smaller than ∆t/t?
+    if (n_err <= deltan_n) and (t_err <= deltat_t):
+        print('Equivalent Maxwellian is good enough. Do not apply LUT.')
+    else:
+        print('n_err = {0:0.4f}\n'
+              't_err = {1:0.4f}'
+              .format(n_err, t_err))
     
-    lut.fill_grid(fi) # already in lut.apply, but good to test separately
-    
-    lut.apply() # Does not exist yet
+    # Apply the look-up table to the distribution
+    f_M, n_M, t_M = lut.apply(fi, n=ni, t=ti) # Does not exist yet
