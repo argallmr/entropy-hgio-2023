@@ -16,7 +16,7 @@ data_root = Path(config['data_root'])
 
 import os
 #os.chdir('/Users/argall/Documents/Python/projects/entropy-hgio-2023/')
-os.chadir('/Users/krmhanieh/Documents/GitHub/entropy-hgio-2023')
+os.chdir('/Users/krmhanieh/Documents/GitHub/entropy-hgio-2023')
 import database, physics, tools
 
 # For now, take the plotting tools from pymms
