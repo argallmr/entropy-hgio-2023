@@ -21,10 +21,10 @@ import database, physics, tools
 # For now, take the plotting tools from pymms
 #   - Tools are not in the `pip install pymms` library
 #   - Change directories so they are discoverable
-os.chdir('/Users/argall/Documents/Python/pymms/examples/')
+# os.chdir('/Users/argall/Documents/Python/pymms/examples/')
 # os.chdir(r"D:\uni UNH\mms\pymms\examples\\")
 # os.chdir('/Users/krmhanieh/Documents/GitHub/pymms/examples')
-import util
+# import util
 
 eV2K = c.value('electron volt-kelvin relationship')
 
@@ -352,7 +352,7 @@ def dissipation_measures(t0, t1, mode='srvy', t_smooth=None):
     ax.set_xlabel('')
     ax.set_xticklabels([])
     ax.set_ylabel('De\n[$nW/m^{3}$]')
-    util.add_legend(ax, ax.get_lines(), corner='NE', outside=True)
+    add_legend(ax, ax.get_lines(), corner='NE', outside=True)
     
     # p-theta
     ax = axes[1,0]
@@ -435,7 +435,7 @@ def max_lut(sc, mode, optdesc, start_date, end_date):
     ax.set_title('')
     ax.set_xlabel('$n_{'+species+'}$ ($cm^{-3}$)')
     ax.set_ylabel('$T_{'+species+'}$ (eV)')
-    util.format_axes(ax, time=False)
+    format_axes(ax, time=False)
 
     # Create a colorbar that is aware of the image's new position
     divider = make_axes_locatable(ax)
@@ -583,8 +583,8 @@ def _max_lut_err(n, t, s, sv, s_max_moms,
     ax.set_xticklabels([])
     ax.set_xlabel('')
     ax.set_ylabel('$\Delta n_{'+species+'}/n_{'+species+'}$ (%)')
-    # util.format_axes(ax, xaxis='off')
-    util.add_legend(ax, [l1[0], l2[0]], corner='SE', horizontal=True)
+    # format_axes(ax, xaxis='off')
+    add_legend(ax, [l1[0], l2[0]], corner='SE', horizontal=True)
 
     # Deviation in temperature
     dt_max = (t - t_max) / t * 100.0
@@ -598,8 +598,8 @@ def _max_lut_err(n, t, s, sv, s_max_moms,
     ax.set_xlabel('')
     ax.set_ylabel('$\Delta T_{'+species+'}/T_{'+species+'}$ (%)')
     ax.set_ylim(-1,2.5)
-    # util.format_axes(ax, xaxis='off')
-    util.add_legend(ax, [l1[0], l2[0]], corner='NE', horizontal=True)
+    # format_axes(ax, xaxis='off')
+    add_legend(ax, [l1[0], l2[0]], corner='NE', horizontal=True)
 
     # Deviation in entropy
     ds_moms = (s - s_max_moms) / s * 100.0
@@ -615,8 +615,8 @@ def _max_lut_err(n, t, s, sv, s_max_moms,
     ax.set_xlabel('')
     ax.set_ylabel('$\Delta s_{'+species+'}/s_{'+species+'}$ (%)')
     ax.set_ylim(-9,2.5)
-    # util.format_axes(ax, xaxis='off')
-    util.add_legend(ax, [l1[0], l2[0], l3[0]], corner='SE', horizontal=True)
+    # format_axes(ax, xaxis='off')
+    add_legend(ax, [l1[0], l2[0], l3[0]], corner='SE', horizontal=True)
 
     # Deviation in velocity-space entropy
     dsv_max = (sv - sv_max) / sv * 100.0
@@ -629,8 +629,8 @@ def _max_lut_err(n, t, s, sv, s_max_moms,
     ax.set_xlabel('')
     ax.set_xticklabels([])
     ax.set_ylabel('$\Delta s_{V,'+species+'}/s_{V,'+species+'}$ (%)')
-    # util.format_axes(ax)
-    util.add_legend(ax, [l1[0], l2[0]], corner='SE', horizontal=True)
+    # format_axes(ax)
+    add_legend(ax, [l1[0], l2[0]], corner='SE', horizontal=True)
 
     ax = axes[4,0]
     l1 = sv_rel_max.plot(ax=ax, label='$s_{V,'+species+',rel,Max}$')
@@ -638,8 +638,8 @@ def _max_lut_err(n, t, s, sv, s_max_moms,
     ax.set_title('')
     ax.set_xlabel('')
     ax.set_ylabel('$s_{V,'+species+',rel}$\n[J/K/$m^{3}$]')
-    # util.format_axes(ax)
-    util.add_legend(ax, [l1[0], l2[0]], corner='SE', horizontal=True)
+    # format_axes(ax)
+    add_legend(ax, [l1[0], l2[0]], corner='SE', horizontal=True)
 
     fig.suptitle('Maxwellian Look-up Table')
 

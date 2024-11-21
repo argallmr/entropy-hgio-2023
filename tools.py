@@ -447,7 +447,10 @@ def resample(data, t0, t1, dt_out, extrapolate=False, method='nearest'):
             data = expand_times(data, t_out[:-1])
         
         elif method in ('nearest', 'linear'):
-            data = data.interp({'time': t_out[:-1]}, method=method)
+            kwargs = {}
+            if extrapolate:
+                kwargs['fill_value'] = 'extrapolate'
+            data = data.interp({'time': t_out[:-1]}, method=method, kwargs=kwargs)
 
         # Interpolate
         elif method == 'interp_gaps':
