@@ -14,18 +14,6 @@ from pymms.data import fpi
 from pymms import config
 data_root = Path(config['data_root'])
 
-import os
-os.chdir('/Users/argall/Documents/Python/projects/entropy-hgio-2023/')
-import database, physics, tools
-
-# For now, take the plotting tools from pymms
-#   - Tools are not in the `pip install pymms` library
-#   - Change directories so they are discoverable
-# os.chdir('/Users/argall/Documents/Python/pymms/examples/')
-# os.chdir(r"D:\uni UNH\mms\pymms\examples\\")
-# os.chdir('/Users/krmhanieh/Documents/GitHub/pymms/examples')
-# import util
-
 eV2K = c.value('electron volt-kelvin relationship')
 
 def format_axes(ax, xaxis='on', yaxis='on', time=True):
