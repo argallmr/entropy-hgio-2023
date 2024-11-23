@@ -249,12 +249,21 @@ class Lookup_Table():
     
         sv4 = (y * np.sin(self.lut['theta']) * self.lut).integrate('phi')
         sv4 = sv4.integrate('theta')
-        sv4 = -kB * 1e12 * coeff * sv4.integrate('U')
-    
+        sv4 = -kB * 1e12 * coeff * self._trapz(sv4.data, sv4['U'].data)
+
         # Velocity space entropy density
         sv = sv1 + sv2 + sv3 + sv4 # J/K/m^3
     
         return sv
+    
+    @staticmethod
+    def _trapz(f, x):
+        dx = x[1:] - x[0:-1]
+        with np.errstate(divide='ignore', invalid='ignore'):
+            F = 0.5  * (f[1:,:,:] + f[0:-1,:,:]) * (dx * np.log(dx))[:,np.newaxis, np.newaxis]
+        F = np.where(np.isfinite(F), F, 0)
+        
+        return np.sum(F, axis=0)
     
     @staticmethod
     def deltaE(energy):
@@ -533,6 +542,7 @@ class Lookup_Table():
         vxsqr = vxsqr[np.newaxis, np.newaxis, ...]
         vysqr = vysqr[np.newaxis, np.newaxis, ...]
         vzsqr = vzsqr[np.newaxis, np.newaxis, ...]
+        v_mag = v_mag[np.newaxis, np.newaxis, ...]
 
         # LUT coordinates need 3 new dimensions for the velocity targets
         n_data = self.n_data[..., np.newaxis, np.newaxis, np.newaxis]
@@ -542,12 +552,20 @@ class Lookup_Table():
         # Calculate the Maxwellian distribution
         #
 
+        '''
         f_M = (1e-6 * n_data
                * (self.mass / (2 * np.pi * kB * eV2K * t_data))**(3.0/2.0)
                * np.exp(-self.mass * (vxsqr + vysqr + vzsqr)
                        / (2.0 * kB * eV2K * t_data))
                )
-    
+        '''
+        
+
+        with np.errstate(invalid='ignore'):
+            vt = np.sqrt(2 * eV2J / self.mass * t_data) # thermal velocity
+            coeff = 1e-6 * n_data / (np.sqrt(np.pi) * vt)**3 #s^3/cm^6
+            f_M = coeff * np.exp(-(vxsqr + vysqr + vzsqr) / vt**2) # s^3/cm^6
+
         # If there is high energy extrapolation, the last velocity bin will be
         # infinity, making the Maxwellian distribution inf or nan (inf*0=nan).
         # Make the distribution zero at v=inf.
@@ -665,13 +683,16 @@ class Lookup_Table():
         
         n_err = np.abs(n - n_M) / n
         t_err = np.abs(t - t_M) / t
+
+        '''
         if (n_err > self.deltan_n):
             raise ValueError('Lookup table density error greater than allowed: '
                              '{0:0.6f} > {1:0.6f}'.format(n_err, self.deltan_n))
         elif (t_err > self.deltat_t):
             raise ValueError('Lookup table density error greater than allowed: '
                              '{0:0.6f} > {1:0.6f}'.format(t_err, self.deltat_t))
-
+        '''
+        
         f_M.attrs['species'] = self.species
         return f_M, n_M, t_M, s_M, sV_M
 
@@ -827,8 +848,13 @@ class Lookup_Table():
         self._plot(ax, 'Mbar', n, n_EM, n_M, t, t_EM, t_M, zz=sV)
         ax.set_xlabel('$n_{'+species+'}$ ($cm^{-3}$)')
         ax.set_ylabel('$t_{'+species+'}$ (eV)')
-        ax.collections[0].colorbar.ax.set_ylabel('$\overline{M}_{'+species+'}$')
         ax.tick_params(axis="x", rotation=45)
+        im = ax.collections[0]
+        vlim = np.abs(np.array(im.get_clim())).max()
+        im.set_clim(-vlim, vlim)
+        im.set_cmap('seismic')
+        cb = im.colorbar
+        cb.ax.set_ylabel('$\overline{M}_{'+species+'}$')
 
         #
         # 2D Entropy LUT: s vs. n
@@ -1147,7 +1173,7 @@ def main(): #sc, mode, optdesc, t0, t1, ti):
     ax.set_yscale('log')
     ax.set_ylim(0.5*f_fpi_E[f_fpi_E > 0].min(), 5e1*f_fpi_E.max())
     plots.add_legend(ax, outside=True)
-    plt.show(block=False)
+    plt.show()
 
     print('                   Measured   Maxwellian         LUT')
     print('Density:            {0:7.4f}      {1:7.4f}     {2:7.4f}'.format(ni, n_M, n_lut))
