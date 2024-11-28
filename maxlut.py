@@ -1,6 +1,8 @@
 import numpy as np
 import datetime as dt
 import xarray as xr
+from pathlib import Path
+from pymms import config
 from pymms.data import fpi
 from scipy import constants
 from tqdm import tqdm
@@ -12,17 +14,19 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 import plots
 
+dropbox_root = Path(config['dropbox_root'])
 eV2K = constants.value('electron volt-kelvin relationship')
 K2eV = constants.value('kelvin-electron volt relationship')
 eV2J = constants.value('electron volt-joule relationship')
 J2eV = constants.value('joule-electron volt relationship')
 e = constants.value('elementary charge')
-kB   = constants.Boltzmann
+kB = constants.Boltzmann
+m_p = constants.m_p
+m_e = constants.m_e
 
 class Lookup_Table():
 
-    def __init__(self, deltan_n=0.005, deltat_t=0.005,
-                 deltas_s=0.005, deltasV_sV=0.005, species='e'):
+    def __init__(self, deltan_n=0.005, deltat_t=0.005, species='e'):
         '''
         Create a look-up table of maxwellian distributions
 
@@ -40,8 +44,6 @@ class Lookup_Table():
         
         self.deltan_n = deltan_n
         self.deltat_t = deltat_t
-        self.deltas_s = deltas_s
-        self.deltasV_sV = deltasV_sV
         self.species = species
         self.mass = self.species_to_mass(species)
     
@@ -207,11 +209,11 @@ class Lookup_Table():
         
         E0 = self.lut.attrs['Energy_e0'] * eV2J
         coeff = -kB * np.sqrt(2) * (E0 / self.mass)**(3/2)
-        S = coeff * (y * S).integrate('U')
+        S = coeff * (y * S).integrate('U') # J/K/m^3
     
         return S
     
-    def vspace_entropy(self, n=None, s=None):
+    def _vspace_entropy(self, n=None, s=None):
 
         if n is None:
             n = self.density()
@@ -251,6 +253,58 @@ class Lookup_Table():
         sv4 = sv4.integrate('theta')
         sv4 = -kB * 1e12 * coeff * self._trapz(sv4.data, sv4['U'].data)
 
+        # Velocity space entropy density
+        sv = sv1 + sv2 + sv3 + sv4 # J/K/m^3
+    
+        return sv
+    
+    def vspace_entropy(self, n=None, s=None):
+
+        if n is None:
+            n = self.density()
+        if s is None:
+            s = self.entropy()
+        
+        # Assume that the azimuth and polar angle bins are equal size
+        dtheta = self.lut['theta'].diff(dim='theta').mean()
+        dphi = self.lut['phi'].diff(dim='phi').mean()
+        
+        # Calculate the factors that associated with the normalized
+        # volume element
+        #   - U ranges from [0, inf] and np.inf/np.inf = nan
+        #   - Set the last element of y along U manually to 0
+        #   - log(0) = -inf; Zeros come from theta and y. Reset to zero
+        #   - Photo-electron correction can result in negative phase space
+        #     density. log(-1) = nan
+        E0 = self.lut.attrs['Energy_e0']*eV2J
+        coeff = np.sqrt(2) * (E0/self.mass)**(3/2) # m^3/s^3
+        dOmega = np.sin(self.lut['theta']) * dtheta * dphi
+        with np.errstate(invalid='ignore', divide='ignore'):
+            y = np.sqrt(self.lut['U']) / (1 - self.lut['U'])**(5/2)
+            lny = np.log(y)
+            lndOmega = np.log(dOmega)
+            lnydOmega = np.log(y * dOmega)
+        y = y.where(np.isfinite(y), 0)
+        lny = lny.where(np.isfinite(lny), 0)
+        lndOmega = lndOmega.where(np.isfinite(lndOmega), 0)
+        lnydOmega = lnydOmega.where(np.isfinite(lnydOmega), 0)
+    
+        # Terms in that make up the velocity space entropy density
+        sv1 = s # J/K/m^3 ln(s^3/m^6) -- Already multiplied by -kB
+        sv2 = kB * (1e6*n) * np.log(1e6*n/coeff) # 1/m^3 * ln(1/m^3)
+        
+        sv3 = (y * lndOmega * np.sin(self.lut['theta']) * self.lut).integrate('phi')
+        sv3 = sv3.integrate('theta')
+        sv3 = -kB * 1e12 * coeff * sv3.integrate('U') # 1/m^3
+    
+        sv4 = (np.sin(self.lut['theta']) * self.lut).integrate('phi')
+        sv4 = sv4.integrate('theta')
+        sv4 = (-kB * 1e12 * coeff
+               * ((y * lny * sv4).integrate('U')
+                  + self._trapz((y * sv4).data, sv4['U'].data)
+                  )
+               )
+        
         # Velocity space entropy density
         sv = sv1 + sv2 + sv3 + sv4 # J/K/m^3
     
@@ -372,11 +426,9 @@ class Lookup_Table():
         # Calculate the density and temperature of the grid
         self.n_lut = self.density()
         self.t_lut = self.scalar_temperature(n=self.n_lut)
-        self.s_M_lut = self.maxwellian_entropy(n=self.n_lut)
-        self.sV_lut = self.vspace_entropy(n=self.n_lut)
 
 
-    def set_grid(self, n, t, s_M, sV):
+    def set_grid(self, n, t):
         '''
         Create the density-temperature grid.
 
@@ -391,33 +443,24 @@ class Lookup_Table():
         # This does not have to be much bigger than deltan_n or deltat_t
         n_range = np.array([0.9, 1.1]) * n
         t_range = np.array([0.9, 1.1]) * t
-        s_M_range = np.array([0.9, 1.1]) * s_M
-        sV_range = np.array([0.9, 1.1]) * sV
 
-        n_data, t_data, s_M_data, sV_data = self.grid_coords(n_range, t_range,
-                                                             s_M_range, sV_range)
+        n_data, t_data = self.grid_coords(n_range, t_range)
         n_data, t_data = np.meshgrid(n_data, t_data, indexing='ij')
         self.n_data = n_data
         self.t_data = t_data
-        self.s_M_data = s_M_data
-        self.sV_data = sV_data
 
-    def grid_coords(self, n_range, t_range, s_M_range, sV_range):
+    def grid_coords(self, n_range, t_range):
         
         # Determine the number of cells
         N = self.grid_resolution(n_range, self.deltan_n)
         M = self.grid_resolution(t_range, self.deltat_t)
-        L = self.grid_resolution(s_M_range, self.deltas_s)
-        P = self.grid_resolution(sV_range, self.deltasV_sV)
 
         # Create the grid
         n = np.logspace(np.log10(n_range[0]), np.log10(n_range[1]), N)
         t = np.logspace(np.log10(t_range[0]), np.log10(t_range[1]), M)
-        s_M = np.logspace(np.log10(s_M_range[0]), np.log10(s_M_range[1]), L)
-        sV = np.logspace(np.log10(sV_range[0]), np.log10(sV_range[1]), P)
 
         # Set the grid
-        return n, t, s_M, sV
+        return n, t
     
     @staticmethod
     def grid_resolution(lim, err):
@@ -571,6 +614,9 @@ class Lookup_Table():
         # Make the distribution zero at v=inf.
         f_M = np.where(np.isfinite(f_M), f_M, 0)
 
+        # Make sure the distribution goes to zero at E=0
+        f_M[..., f._energy == 0] = 0
+
         f_M = xr.DataArray(f_M,
                            name='max_lut',
                            dims=('n_data', 't_data', 'phi', 'theta', 'energy'),
@@ -621,17 +667,13 @@ class Lookup_Table():
             n = f.density()
         if t is None:
             t = f.scalar_temperature(n=n)
-        if s_M is None:
-            s_M = f.maxwellian_entropy(n=n)
-        if sV is None:
-            sV = f.vspace_entropy(n=n)
         
         # This will be needed if entropy is another search parameter
         # if s_M is None:
         #     s_M = f.maxwellian_entropy(n=n)
         
         # Create the LUT grid
-        self.set_grid(n, t, s_M, sV)
+        self.set_grid(n, t)
 
         # Fill the grid with Maxwellian distributions
         self.fill_grid(f)
@@ -670,8 +712,6 @@ class Lookup_Table():
             icol = imin % dims[1]
             n_M = self.n_lut[irow, icol]
             t_M = self.t_lut[irow, icol]
-            s_M = self.s_M_lut[irow, icol]
-            sV_M = self.sV_lut[irow, icol]
             f_M = self.lut[irow, icol, ...]
         
         # Interpolate
@@ -694,7 +734,7 @@ class Lookup_Table():
         '''
         
         f_M.attrs['species'] = self.species
-        return f_M, n_M, t_M, s_M, sV_M
+        return f_M, n_M, t_M
 
     @staticmethod
     def species_to_mass(species):
@@ -722,42 +762,16 @@ class Lookup_Table():
         
         return mass
     
-    def _plot(self, ax, style, xx, x_M, x_lut, yy, y_M, y_lut, zz=None):
+    def _plot(self, ax, data, x, x_M, x_lut, y, y_M, y_lut, xx=None, yy=None):
+
+        if xx is None:
+            xx = self.n_data
+        if yy is None:
+            yy = self.t_data
 
         fig = ax.get_figure()
 
-        if style == 'ntn':
-            x = self.n_data
-            y = self.t_data
-            z = self.n_lut
-        elif style == 'ntt':
-            x = self.n_data
-            y = self.t_data
-            z = self.t_lut
-        elif style == 'nss':
-            x = self.n_data
-            y = self.s_M_data[np.newaxis,:].repeat(x.shape[0], axis=0)
-            z = self.s_M_lut
-        elif style == 'sts':
-            y = self.t_data
-            x = self.s_M_data[:,np.newaxis].repeat(y.shape[1], axis=1)
-            z = self.s_M_lut
-        elif style == 'nsVsV':
-            x = self.n_data
-            y = self.sV_data[np.newaxis,:].repeat(x.shape[0], axis=0)
-            z = self.sV_lut
-        elif style == 'sVtsV':
-            y = self.t_data
-            x = self.sV_data[:,np.newaxis].repeat(y.shape[1], axis=1)
-            z = self.sV_lut
-        elif style == 'Mbar':
-            x = self.n_data
-            y = self.t_data
-            z = (self.sV_lut - zz) / self.sV_lut
-        else:
-            raise ValueError('style {0} not recognized. Must be (ntn, ntt, nss, tss).')
-        
-        img = ax.pcolormesh(x, y, z)
+        img = ax.pcolormesh(xx, yy, data)
         ax.set_title('')
         ax.set_xscale('log')
         ax.set_yscale('log')
@@ -771,7 +785,7 @@ class Lookup_Table():
         cb.ax.minorticks_on()
     
         # Plot the location of the measured density and temperature
-        ax.plot(xx, yy, linestyle='None', marker='x', color='black')
+        ax.plot(x, y, linestyle='None', marker='x', color='black')
         ax.plot(x_M, y_M, linestyle='None', marker=r'$\mathrm{E}$', color='black')
         ax.plot(x_lut, y_lut, linestyle='None', marker=r'$\mathrm{L}$', color='black')
 
@@ -796,7 +810,7 @@ class Lookup_Table():
         axins.plot(n_EM, t_EM, linestyle='None', marker=r'$\mathrm{E}$', color='black')
         '''
 
-    def plot(self, n, t, s_M, sV,
+    def plot(self, n, t, s, sV, s_M,
              n_EM, t_EM, s_EM, sV_EM,
              n_M, t_M, s_lut_M, sV_M, inset_loc='NE'):
         species = 'e'
@@ -815,6 +829,14 @@ class Lookup_Table():
         elif inset_loc == 'SW':
             inset_loc = [0.0, 0.0, 0.47, 0.47]
         
+        # Derived products
+
+        s_lut = self.entropy()
+        s_M_lut = self.maxwellian_entropy(n=self.n_lut)
+        sV_lut = self.vspace_entropy(n=self.n_lut, s=s_lut)
+        Mbar = (sV_lut - sV) / sV_lut
+        MbarKP = (s_lut - s) / (3/2 * kB * 1e6 * self.n_lut)
+        
         fig, axes = plt.subplots(nrows=3, ncols=3, squeeze=False, figsize=(11, 7))
         plt.subplots_adjust(left=0.12, right=0.9, bottom=0.1, top=0.95, wspace=1.0, hspace=0.4)
 
@@ -823,7 +845,7 @@ class Lookup_Table():
         #
 
         ax = axes[0,0]
-        self._plot(ax, 'ntn', n, n_EM, n_M, t, t_EM, t_M)
+        self._plot(ax, self.n_lut, n, n_EM, n_M, t, t_EM, t_M)
         ax.set_xlabel('$n_{'+species+'}$ ($cm^{-3}$)')
         ax.set_ylabel('$t_{'+species+'}$ (eV)')
         ax.collections[0].colorbar.ax.set_ylabel('$n_{'+species+'}$ [$cm^{-3}$]')
@@ -834,7 +856,7 @@ class Lookup_Table():
         #
 
         ax = axes[0,1]
-        self._plot(ax, 'ntt', n, n_EM, n_M, t, t_EM, t_M)
+        self._plot(ax, self.t_lut, n, n_EM, n_M, t, t_EM, t_M)
         ax.set_xlabel('$n_{'+species+'}$ ($cm^{-3}$)')
         ax.set_ylabel('$t_{'+species+'}$ (eV)')
         ax.collections[0].colorbar.ax.set_ylabel('$t_{'+species+'}$ [eV]')
@@ -845,7 +867,7 @@ class Lookup_Table():
         #
 
         ax = axes[0,2]
-        self._plot(ax, 'Mbar', n, n_EM, n_M, t, t_EM, t_M, zz=sV)
+        self._plot(ax, Mbar, n, n_EM, n_M, t, t_EM, t_M)
         ax.set_xlabel('$n_{'+species+'}$ ($cm^{-3}$)')
         ax.set_ylabel('$t_{'+species+'}$ (eV)')
         ax.tick_params(axis="x", rotation=45)
@@ -861,51 +883,86 @@ class Lookup_Table():
         #
 
         ax = axes[1,0]
-        self._plot(ax, 'nss', n, n_EM, n_M, s_M, s_EM, s_lut_M)
+        # self._plot(ax, s_lut, n, n_EM, n_M, t, t_EM, t_M)
+        self._plot(ax, s_lut, n, n_EM, n_M, s_M, s_EM, s_lut_M,
+                   xx=self.n_data, yy=s_M_lut)
         ax.set_xlabel('$n_{'+species+'}$ ($cm^{-3}$)')
+        ax.set_ylabel('$s_{'+species+'}$ ($J/K/m^{3}$)')
+        ax.collections[0].colorbar.ax.set_ylabel('$s_{M,'+species+'}$ [$J/K/m^{3}$]')
+        ax.tick_params(axis="x", rotation=45)
+
+        #
+        # 2D Entropy LUT: s_M vs. t
+        #
+
+        ax = axes[1,1]
+        self._plot(ax, s_M_lut, t, t_EM, t_M, s_M, s_EM, s_lut_M,
+                   xx=self.t_data, yy=s_M_lut)
+        ax.set_xlabel('$t_{'+species+'}$ (eV)')
         ax.set_ylabel('$s_{M,'+species+'}$ ($J/K/m^{3}$)')
         ax.collections[0].colorbar.ax.set_ylabel('$s_{M,'+species+'}$ [$J/K/m^{3}$]')
         ax.tick_params(axis="x", rotation=45)
 
         #
-        # 2D Entropy LUT: t vs. s
+        # 2D M-bar-KP LUT: t vs. n
         #
 
-        ax = axes[1,1]
-        self._plot(ax, 'sts', s_M, s_EM, s_lut_M, t, t_EM, t_M)
+        ax = axes[1,2]
+        self._plot(ax, MbarKP, n, n_EM, n_M, t, t_EM, t_M)
+        ax.set_xlabel('$n_{'+species+'}$ ($cm^{-3}$)')
         ax.set_ylabel('$t_{'+species+'}$ (eV)')
-        ax.set_xlabel('$s_{M,'+species+'}$ ($J/K/m^{3}$)')
-        ax.collections[0].colorbar.ax.set_ylabel('$s_{M,'+species+'}$ [$J/K/m^{3}$]')
         ax.tick_params(axis="x", rotation=45)
+        im = ax.collections[0]
+        vlim = np.abs(np.array(im.get_clim())).max()
+        im.set_clim(-vlim, vlim)
+        im.set_cmap('seismic')
+        cb = im.colorbar
+        cb.ax.set_ylabel('$\overline{M}_{\mathrm{KP},'+species+'}$')
 
         #
         # 2D V-Space Entropy LUT: sV vs. n
         #
 
+        import pdb
+        pdb.set_trace()
+
         ax = axes[2,0]
-        self._plot(ax, 'nsVsV', n, n_EM, n_M, sV, sV_EM, sV_M)
+        self._plot(ax, sV_lut, n, n_EM, n_M, sV, sV_EM, sV_M,
+                   xx=self.n_lut, yy=sV_lut)
         ax.set_xlabel('$n_{'+species+'}$ ($cm^{-3}$)')
         ax.set_ylabel('$s_{V,'+species+'}$ ($J/K/m^{3}$)')
         ax.collections[0].colorbar.ax.set_ylabel('$s_{V,'+species+'}$ [$J/K/m^{3}$]')
         ax.tick_params(axis="x", rotation=45)
 
         #
-        # 2D V-Space Entropy LUT: t vs. sV
+        # 2D V-Space Entropy LUT: sV vs. t
         #
 
         ax = axes[2,1]
-        self._plot(ax, 'sVtsV', sV, sV_EM, sV_M, t, t_EM, t_M)
-        ax.set_ylabel('$t_{'+species+'}$ (eV)')
-        ax.set_xlabel('$s_{V,'+species+'}$ ($J/K/m^{3}$)')
+        self._plot(ax, sV_lut, t, t_EM, t_M, sV, sV_EM, sV_M,
+                   xx=self.n_data, yy=sV_lut)
+        ax.set_xlabel('$t_{'+species+'}$ (eV)')
+        ax.set_ylabel('$s_{V,'+species+'}$ ($J/K/m^{3}$)')
         ax.collections[0].colorbar.ax.set_ylabel('$s_{V,'+species+'}$ [$J/K/m^{3}$]')
         ax.tick_params(axis="x", rotation=45)
 
         return fig, axes
 
 
-def plot_max_lut(n, t, # s, sv, s_max_moms,
-                 n_max, t_max, # s_max, sv_max, sv_rel_max,
-                 n_lut, t_lut): #, s_lut, sv_lut, sv_rel_lut):
+def M_bar(sV_M, sV):
+    return (sV_M - sV) / sV_M
+
+
+def M_bar_KP(s_M, s, n):
+    return (s_M - s) / (3/2 * kB * 1e6 * n)
+
+
+def thermal_velocity(T, m):
+    v_th = 1e-3 * np.sqrt(2 * kB * T * eV2K / m) # km/s
+    return v_th
+
+
+def plot_max_lut(data):
 
     species = 'e'
 
@@ -913,8 +970,8 @@ def plot_max_lut(n, t, # s, sv, s_max_moms,
     plt.subplots_adjust(top=0.95, right=0.95, left=0.17)
 
     # Error in the adjusted look-up table
-    dn_max = (n - n_max) / n * 100.0
-    dn_lut = (n - n_lut) / n * 100.0
+    dn_max = (data['n'] - data['n_M']) / data['n'] * 100.0
+    dn_lut = (data['n'] - data['n_lut']) / data['n'] * 100.0
 
     ax = axes[0,0]
     l1 = dn_max.plot(ax=ax, label='$\Delta n_{'+species+',Max}/n_{'+species+',Max}$')
@@ -923,12 +980,12 @@ def plot_max_lut(n, t, # s, sv, s_max_moms,
     ax.set_xticklabels([])
     ax.set_xlabel('')
     ax.set_ylabel('$\Delta n_{'+species+'}/n_{'+species+'}$ (%)')
-    # util.format_axes(ax, xaxis='off')
-    plots.add_legend(ax, [l1[0], l2[0]], corner='SE', horizontal=True)
+    plots.format_axes(ax, xaxis='off')
+    plots.add_legend(ax, corner='SE', horizontal=True)
 
     # Deviation in temperature
-    dt_max = (t - t_max) / t * 100.0
-    dt_lut = (t - t_lut) / t * 100.0
+    dt_max = (data['t'] - data['t_M']) / data['t'] * 100.0
+    dt_lut = (data['t'] - data['t_lut']) / data['t'] * 100.0
 
     ax = axes[1,0]
     l1 = dt_max.plot(ax=ax, label='$\Delta T_{'+species+',Max}/T_{'+species+',Max}$')
@@ -937,50 +994,91 @@ def plot_max_lut(n, t, # s, sv, s_max_moms,
     ax.set_xticklabels([])
     ax.set_xlabel('')
     ax.set_ylabel('$\Delta T_{'+species+'}/T_{'+species+'}$ (%)')
-    ax.set_ylim(-1,2.5)
-    # util.format_axes(ax, xaxis='off')
-    plots.add_legend(ax, [l1[0], l2[0]], corner='NE', horizontal=True)
+    # ax.set_ylim(-1,2.5)
+    plots.format_axes(ax, xaxis='off')
+    plots.add_legend(ax, corner='NE', horizontal=True)
 
     '''
     # Deviation in entropy
-    ds_moms = (s - s_max_moms) / s * 100.0
-    ds_max = (s - s_max) / s * 100.0
-    ds_lut = (s - s_lut) / s * 100.0
+    ds_moms = (data['s_M_moms'] - data['s']) / data['s'] * 100.0
+    ds_max = (data['s_M'] - data['s']) / data['s'] * 100.0
+    ds_lut = (data['s_lut'] - data['s']) / data['s'] * 100.0
 
     ax = axes[2,0]
     l1 = ds_max.plot(ax=ax, label='$\Delta s_{'+species+',Max}/s_{'+species+',Max}$')
     l2 = ds_lut.plot(ax=ax, label='$\Delta s_{'+species+',lut}/s_{'+species+',lut}$')
     l3 = ds_moms.plot(ax=ax, label='$\Delta s_{'+species+',moms}/s_{'+species+',moms}$')
     ax.set_title('')
-    ax.set_xticklabels([])
-    ax.set_xlabel('')
     ax.set_ylabel('$\Delta s_{'+species+'}/s_{'+species+'}$ (%)')
-    ax.set_ylim(-9,2.5)
-    # util.format_axes(ax, xaxis='off')
-    util.add_legend(ax, [l1[0], l2[0], l3[0]], corner='SE', horizontal=True)
+    # ax.set_ylim(-9,2.5)
+    plots.format_axes(ax, xaxis='off')
+    plots.add_legend(ax, corner='SE', horizontal=True)
 
     # Deviation in velocity-space entropy
-    dsv_max = (sv - sv_max) / sv * 100.0
-    dsv_lut = (sv - sv_lut) / sv * 100.0
+    dsv_max = (data['sv_M'] - data['sv']) / data['sv'] * 100.0
+    dsv_lut = (data['sv_lut'] - data['sv']) / data['sv'] * 100.0
 
     ax = axes[3,0]
     l1 = dsv_max.plot(ax=ax, label='$\Delta s_{V,'+species+',Max}/s_{V,'+species+',Max}$')
     l2 = dsv_lut.plot(ax=ax, label='$\Delta s_{V,'+species+',lut}/s_{V,'+species+',lut}$')
     ax.set_title('')
-    ax.set_xlabel('')
-    ax.set_xticklabels([])
     ax.set_ylabel('$\Delta s_{V,'+species+'}/s_{V,'+species+'}$ (%)')
-    # util.format_axes(ax)
-    util.add_legend(ax, [l1[0], l2[0]], corner='SE', horizontal=True)
+    plots.format_axes(ax, xaxis='off')
+    plots.add_legend(ax, corner='SE', horizontal=True)
+    '''
+    
+    #
+    # M-Bar
+    #
+    ax = axes[2,0]
+    data['Mbar_M'].plot(ax=ax, label='$\overline{M}_{'+species+',Max}$')
+    data['Mbar_lut'].plot(ax=ax, label='$\overline{M}_{'+species+',lut}$')
+    ax.set_title('')
+    ax.set_ylabel('$\overline{M}_{'+species+'}$')
+    plots.format_axes(ax=ax, xaxis='off')
+    plots.add_legend(ax=ax, corner='SE', horizontal=True)
 
+    #
+    # M-Bar-KP
+    #
+    ax = axes[3,0]
+    data['MbarKP_M'].plot(ax=ax, label='$\overline{M}_{KP,'+species+',Max}$')
+    data['MbarKP_lut'].plot(ax=ax, label='$\overline{M}_{KP,'+species+',lut}$')
+    data['MbarKP_moms'].plot(ax=ax, label='$\overline{M}_{KP,'+species+',moms}$')
+    # data['MbarKP_lut_sv'].plot(ax=ax, label='$\overline{M}_{KP,sV,'+species+',lut}$')
+    ax.set_title('')
+    ax.set_ylabel('$\overline{M}_{KP,'+species+'}$')
+    plots.format_axes(ax, xaxis='off')
+    plots.add_legend(ax, corner='SE', horizontal=True)
+
+    #
+    # Thermal Velocity
+    #
+    mass = m_e if species == 'e' else m_p
+    data['v_th'] = thermal_velocity(data['t'], mass)
+    data['v_th_M'] = thermal_velocity(data['t_M'], mass)
+    data['v_th_lut'] = thermal_velocity(data['t_lut'], mass)
+
+    ax = axes[4,0]
+    data['v_th'].plot(ax=ax, label='$v_{th,'+species+'}$')
+    data['v_th_M'].plot(ax=ax, label='$v_{th,'+species+',Max}$')
+    data['v_th_lut'].plot(ax=ax, label='$v_{th,'+species+',lut}$')
+    ax.set_title('')
+    ax.set_xlabel('')
+    ax.set_ylabel('$v_{th}'+species+'}$\n[km/s]')
+    plots.format_axes(ax)
+    plots.add_legend(ax, corner='SE', horizontal=True)
+
+
+    '''
     ax = axes[4,0]
     l1 = sv_rel_max.plot(ax=ax, label='$s_{V,'+species+',rel,Max}$')
     l2 = sv_rel_lut.plot(ax=ax, label='$s_{V,'+species+',rel,lut}$')
     ax.set_title('')
     ax.set_xlabel('')
     ax.set_ylabel('$s_{V,'+species+',rel}$\n[J/K/$m^{3}$]')
-    # util.format_axes(ax)
-    util.add_legend(ax, [l1[0], l2[0]], corner='SE', horizontal=True)
+    plots.format_axes(ax)
+    plots.add_legend(ax, corner='SE', horizontal=True)
     '''
 
     fig.suptitle('Maxwellian Look-up Table')
@@ -989,16 +1087,44 @@ def plot_max_lut(n, t, # s, sv, s_max_moms,
 
 
 def main_ts():
+
+    #
+    # Define the dataset
+    #
     
     # Time at which to select the distribution
-    ti = np.datetime64('2017-07-11T22:34:02')
+    ti = np.datetime64('2017-07-11T22:34:02.5')
 
     # Define some input parameters
     sc = 'mms4'
     mode = 'brst'
     optdesc = 'des-dist'
-    t0 = dt.datetime(2017, 7, 11, 22, 34, 0)
-    t1 = dt.datetime(2017, 7, 11, 22, 34, 5)
+    t0 = dt.datetime(2017, 7, 11, 22, 34, 2)
+    t1 = dt.datetime(2017, 7, 11, 22, 34, 3)
+    species = optdesc[1]
+
+    #
+    # Check if we already ran this interval
+    #
+
+    # Create a file name to output the data
+    t0_str = t0.strftime('%Y%m%d_%H%M%S')
+    if t0.date == t1.date:
+        t1_str = t1.strftime('%H%M%S')
+    else:
+        t1_str = t1.strftime('%Y%m%d_%H%M%S')
+    fname = (dropbox_root / '_'.join((sc, optdesc[0:3], mode, 's', t0_str, t1_str))
+             ).with_suffix('.nc')
+    
+    if fname.exists():
+        lut_data = xr.load_dataset(fname)
+        fig, axes = plot_max_lut(lut_data)
+        plt.show()
+        return
+    
+    #
+    # Get the FPI data
+    #
 
     # Load and precondition the distribution functions
     des_dist = fpi.load_dist(sc=sc, mode=mode, optdesc=optdesc,
@@ -1009,23 +1135,46 @@ def main_ts():
 
     scpot = kwargs.pop('scpot')
 
+    #
+    # Determine the Equivalent Maxwellian and its Moments
+    #
+
     # Create the equivalent Maxwellian
     f_M = fpi.maxwellian_distribution(des_pre)
     n_M = fpi.density(f_M)
     t_M = fpi.scalar_temperature(f_M)
+    s_M = fpi.entropy(f_M)
+    sv_M = fpi.vspace_entropy(f_M, n=n_M, s=s_M)
+
+    #
+    # Make lists to gether output data
+    #
     
     # Now find the optimized equivalent Maxwellian distributions
     f_lut = list()
     n_lut = list()
     t_lut = list()
+    s_lut = list()
+    sv_lut = list()
+
+    n = list()
+    t = list()
+    s = list()
+    sv = list()
+    s_M_moms = list()
+
+    #
+    # Loop over each distribution, calculate its moments, and
+    # apply the look-up table
+    #
 
     # Loop over each of the distribution functions
     for idx in tqdm(range(len(des_pre))): # f_fpi, Vsc in tqdm(zip(des_pre, scpot), total=len(scpot)):
         f_fpi = des_pre[idx,...]
         Vsc = scpot[idx]
-        _fM = f_M[idx,...]
-        _nM = n_M[idx]
-        _tM = t_M[idx]
+        # _fM = f_M[idx,...]
+        # _nM = n_M[idx]
+        # _tM = t_M[idx]
 
         # Create a distribution function object from the measured distribution
         #   - Provide the preconditioning keywords so that the original and
@@ -1034,6 +1183,15 @@ def main_ts():
         fi.precondition()
         ni = fi.density()
         ti = fi.scalar_temperature(n=ni)
+        si = fi.entropy()
+        svi = fi.vspace_entropy(n=ni, s=si)
+        s_max_moms = fi.maxwellian_entropy(n=ni)
+
+        n.append(ni)
+        t.append(ti)
+        s.append(si)
+        sv.append(svi)
+        s_M_moms.append(s_max_moms)
 
         # Create a table of Maxwellian distributions around the measured distribution
         species = optdesc[1]
@@ -1041,13 +1199,13 @@ def main_ts():
         deltat_t = 0.005
 
         # Check if they are below the grid resolution
-        n_err = np.abs(ni - _nM) / ni   # is this smaller than ∆n/n?
-        t_err = np.abs(ti - _tM) / ti   # is this smaller than ∆t/t?
+        n_err = np.abs(ni - n_M[idx]) / ni   # is this smaller than ∆n/n?
+        t_err = np.abs(ti - t_M[idx]) / ti   # is this smaller than ∆t/t?
         if (n_err <= deltan_n) and (t_err <= deltat_t):
             print('Equivalent Maxwellian is good enough. Do not apply LUT.')
-            f_lut.append(f_M)
-            n_lut.append(n_M)
-            t_lut.append(t_M)
+            f_lut.append(f_M[idx,...])
+            n_lut.append(n_M[idx])
+            t_lut.append(t_M[idx])
             
         else:
             lut = Lookup_Table(deltan_n=deltan_n, deltat_t=deltat_t, species=species)
@@ -1056,15 +1214,56 @@ def main_ts():
             #   - Find the Maxwellian distribution within the look-up table that has
             #     a density and temperature most similar to the measured distribution
             _f, _n, _t = lut.apply(fi, n=ni, t=ti) # Does not exist yet
+            _f = fpi.Distribution_Function.from_fpi(_f)
+            _s = _f.entropy()
             f_lut.append(_f)
             n_lut.append(_n)
             t_lut.append(_t)
-        
-        if idx == 25:
-            return
+            s_lut.append(_s)
+            sv_lut.append(_f.vspace_entropy(n=_n, s=_s))
+
+    #
+    # Put everything into a dataset
+    #
+
+    import pdb
+    pdb.set_trace()
+
+    # Store the data
+    lut_data = xr.Dataset({'n': (('time',), n),
+                           't': (('time',), t),
+                           's': (('time',), s),
+                           'sv': (('time',), sv),
+                           's_M_moms': (('time',), s_M_moms),
+                           'n_M': n_M,
+                           't_M': t_M,
+                           's_M': s_M,
+                           'sv_M': sv_M,
+                           'n_lut': (('time',), n_lut),
+                           't_lut': (('time',), t_lut),
+                           's_lut': (('time',), s_lut),
+                           'sv_lut': (('time',), sv_lut)},
+                           coords={'time': des_dist['time']})
+
+    # Thermal velocity
+    mass = m_e if species == 'e' else m_p
+    lut_data['v_th'] = thermal_velocity(lut_data['t'], mass)
+    lut_data['v_th_M'] = thermal_velocity(lut_data['t_M'], mass)
+    lut_data['v_th_lut'] = thermal_velocity(lut_data['t_lut'], mass)
+    
+    # Non-Maxwellianity
+    lut_data['Mbar_M'] = M_bar(lut_data['sv_M'], lut_data['sv'])
+    lut_data['Mbar_lut'] = M_bar(lut_data['sv_lut'], lut_data['sv'])
+    lut_data['MbarKP_moms'] = M_bar_KP(lut_data['s_M_moms'], lut_data['s'], lut_data['n'])
+    lut_data['MbarKP_M'] = M_bar_KP(lut_data['s_M'], lut_data['s'], lut_data['n'])
+    lut_data['MbarKP_lut'] = M_bar_KP(lut_data['s_lut'], lut_data['s'], lut_data['n'])
+    lut_data['MbarKP_lut_sv'] = M_bar_KP(lut_data['s_lut'], lut_data['sv'], lut_data['n'])
+
+    # Output data to file
+    lut_data.to_netcdf(fname)
 
     # Plot the results
-    fig, axes = lut.plot_max_lut(ni, ti, n_M, t_M, n_lut, t_lut)
+    fig, axes = plot_max_lut(lut_data)
     plt.show()
 
 
@@ -1103,8 +1302,9 @@ def main(): #sc, mode, optdesc, t0, t1, ti):
     fi = fpi.Distribution_Function.from_fpi(f_fpi, scpot=Vsci, **kwargs)
     fi.precondition()
     ni = fi.density()
+    si = fi.entropy()
     ti = fi.scalar_temperature(n=ni)
-    sVi = fi.vspace_entropy(n=ni)
+    sVi = fi.vspace_entropy(n=ni, s=si)
     si_M = fi.maxwellian_entropy(n=ni)
 
     # Create a table of Maxwellian distributions around the measured distribution
@@ -1112,7 +1312,7 @@ def main(): #sc, mode, optdesc, t0, t1, ti):
     deltan_n = 0.005
     deltat_t = 0.005
     deltas_s = 0.005
-    lut = Lookup_Table(deltan_n=deltan_n, deltat_t=deltat_t, deltas_s=deltas_s, species=species)
+    lut = Lookup_Table(deltan_n=deltan_n, deltat_t=deltat_t, species=species)
 
     # Create a maxwellian distribution with the same density and temperature
     # as the measured distribution
@@ -1135,8 +1335,10 @@ def main(): #sc, mode, optdesc, t0, t1, ti):
     # Apply the look-up table to the distribution
     #   - Find the Maxwellian distribution within the look-up table that has
     #     a density and temperature most similar to the measured distribution
-    f_M_lut, n_lut, t_lut, s_M_lut, sV_lut = lut.apply(fi, n=ni, t=ti, s_M=si_M, sV=sVi)
+    f_M_lut, n_lut, t_lut = lut.apply(fi, n=ni, t=ti)
     f_M_lut = fpi.Distribution_Function.from_fpi(f_M_lut)
+    s_M_lut = f_M_lut.maxwellian_entropy(n=n_lut)
+    sV_lut = f_M_lut.vspace_entropy(n=n_lut)
 
     # Non-Maxwellanity
     Mbar_M = (sV_M - sVi) / sV_M
@@ -1146,7 +1348,7 @@ def main(): #sc, mode, optdesc, t0, t1, ti):
     # Measured = X
     # Equivalent Maxwellian = EM = E
     # LUT Maxwellian = M = 
-    fig, axes = lut.plot(ni, ti, si_M, sVi,
+    fig, axes = lut.plot(ni, ti, si, sVi, si_M,
                          n_M, t_M, s_M, sV_M,
                          n_lut, t_lut, s_M_lut, sV_lut)
 
@@ -1171,9 +1373,8 @@ def main(): #sc, mode, optdesc, t0, t1, ti):
     ax.set_xscale('log')
     ax.set_ylabel('$f_{e}$\n[$s^{3}/cm^{6}$]')
     ax.set_yscale('log')
-    ax.set_ylim(0.5*f_fpi_E[f_fpi_E > 0].min(), 5e1*f_fpi_E.max())
+    ax.set_ylim(0.02*f_fpi_E[f_fpi_E > 0].min(), 5e1*f_fpi_E.max())
     plots.add_legend(ax, outside=True)
-    plt.show()
 
     print('                   Measured   Maxwellian         LUT')
     print('Density:            {0:7.4f}      {1:7.4f}     {2:7.4f}'.format(ni, n_M, n_lut))
@@ -1182,6 +1383,8 @@ def main(): #sc, mode, optdesc, t0, t1, ti):
     print('V-Space Entropy:     {0:2.4e}       {1:2.4e}     {2:2.4e}'.format(sVi, sV_M, sV_lut))
     print('Non-Maxwellianity:                  {0:2.4f}     {1:2.4f}'.format(Mbar_M, Mbar_lut))
 
+    plt.show()
+
 
 if __name__ == '__main__':
-    main()
+    main_ts()
