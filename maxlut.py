@@ -1054,11 +1054,6 @@ def plot_max_lut(data):
     #
     # Thermal Velocity
     #
-    mass = m_e if species == 'e' else m_p
-    data['v_th'] = thermal_velocity(data['t'], mass)
-    data['v_th_M'] = thermal_velocity(data['t_M'], mass)
-    data['v_th_lut'] = thermal_velocity(data['t_lut'], mass)
-
     ax = axes[4,0]
     data['v_th'].plot(ax=ax, label='$v_{th,'+species+'}$')
     data['v_th_M'].plot(ax=ax, label='$v_{th,'+species+',Max}$')
@@ -1225,9 +1220,6 @@ def main_ts():
     #
     # Put everything into a dataset
     #
-
-    import pdb
-    pdb.set_trace()
 
     # Store the data
     lut_data = xr.Dataset({'n': (('time',), n),
