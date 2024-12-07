@@ -6,6 +6,8 @@ from matplotlib import pyplot as plt, dates as mdates, cm, ticker
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
+import database, physics, tools
+
 # Create label locator
 locator = mdates.AutoDateLocator()
 formatter = mdates.ConciseDateFormatter(locator)
@@ -242,15 +244,57 @@ def overview(sc, t0, t1, mode='srvy'):
     plt.show()
 
 
+def load_entropy():
+    
+    # Files in which relative entropy data is saved
+    dir = Path('~/data/mms/dropbox/').expanduser()
+    # f1 = dir / 'mms1_des_brst_s_20170711_223400_20170711_223405.nc'
+    # f2 = dir / 'mms2_des_brst_s_20170711_223400_20170711_223405.nc'
+    # f3 = dir / 'mms3_des_brst_s_20170711_223400_20170711_223405.nc'
+    # f4 = dir / 'mms4_des_brst_s_20170711_223400_20170711_223405.nc'
+    f1 = dir / 'mms1_des_brst_s_20161022_125912_20161022_125915.nc'
+    f2 = dir / 'mms2_des_brst_s_20161022_125912_20161022_125915.nc'
+    f3 = dir / 'mms3_des_brst_s_20161022_125912_20161022_125915.nc'
+    f4 = dir / 'mms4_des_brst_s_20161022_125912_20161022_125915.nc'
+
+    # Load the files from the four spacecraft
+    ds1 = xr.load_dataset(f1)
+    ds2 = xr.load_dataset(f2).interp_like(ds1['time'], kwargs={'fill_value': 'extrapolate'})
+    ds3 = xr.load_dataset(f3).interp_like(ds1['time'], kwargs={'fill_value': 'extrapolate'})
+    ds4 = xr.load_dataset(f4).interp_like(ds1['time'], kwargs={'fill_value': 'extrapolate'})
+
+    # Combine the data into one dataset
+    ds = xr.Dataset()
+    for key in ['n', 't', 'sv_lut', 'sv_rel_lut', 'Mbar_lut']:
+        k_out = key
+        if key == 'sv_lut':
+            k_out = 'sV'
+        elif key == 'sv_rel_lut':
+            k_out = 'sV_rel'
+        
+        ds[k_out+'1'] = ds1[key]
+        ds[k_out+'2'] = ds2[key]
+        ds[k_out+'3'] = ds3[key]
+        ds[k_out+'4'] = ds4[key]
+
+    return ds
+
+
 def dissipation_measures(t0, t1, mode='srvy', t_smooth=None):
 
     # Get the dataset
     fname = database.load_data(t0, t1, mode=mode)
     data = xr.load_dataset(fname)
+    data = data.rename({'r1_GSE': 'r1',
+                        'r2_GSE': 'r2',
+                        'r3_GSE': 'r3',
+                        'r4_GSE': 'r4'})
 
     # Load the entropy data
-    f_rel = database.filename('mms', mode, t0, t1, optdesc='des-dist-s')
-    s_rel = xr.load_dataset(f_rel)
+    # f_rel = database.filename('mms', mode, t0, t1, optdesc='des-dist-s')
+    # s_rel = xr.load_dataset(f_rel)
+    s_rel = load_entropy()
+    s_rel = s_rel.interp_like(data['time'])
     
     # Calculate electron frame dissipation measure
     De_moms = xr.Dataset()
@@ -286,7 +330,7 @@ def dissipation_measures(t0, t1, mode='srvy', t_smooth=None):
     # Smooth the entropy data
     if t_smooth is None:
         sV_rel = s_rel[['sV_rel1', 'sV_rel2', 'sV_rel3', 'sV_rel4']]
-        n = s_rel[['sV_rel1', 'sV_rel2', 'sV_rel3', 'sV_rel4']]
+        n = s_rel[['n1', 'n2', 'n3', 'n4']]
         t = s_rel[['t1', 't2', 't3', 't4']]
         R = data[['r1', 'r2', 'r3', 'r4']]
     else:
@@ -294,6 +338,7 @@ def dissipation_measures(t0, t1, mode='srvy', t_smooth=None):
         n = xr.Dataset()
         t = xr.Dataset()
         R = xr.Dataset()
+        
         for name in ['sV_rel1', 'sV_rel2', 'sV_rel3', 'sV_rel4']:
             sV_rel[name] = tools.smooth(s_rel[name], t_smooth)
             # sV_rel[name] = tools.smooth(s_rel[name], 3,
@@ -326,7 +371,7 @@ def dissipation_measures(t0, t1, mode='srvy', t_smooth=None):
     pE_rel = pE_rel.sel(time=slice(pE_rel['time'][3].data, None))
 
     # Plot the data
-    fig, axes = plt.subplots(nrows=4, ncols=1, squeeze=False, figsize=(7, 2))
+    fig, axes = plt.subplots(nrows=4, ncols=1, squeeze=False, figsize=(7, 4.5))
     plt.subplots_adjust(left=0.18, right=0.88, top=0.98, bottom=0.15)
     
     # Electron Frame Dissipation Measure
@@ -340,7 +385,7 @@ def dissipation_measures(t0, t1, mode='srvy', t_smooth=None):
     ax.set_xlabel('')
     ax.set_xticklabels([])
     ax.set_ylabel('De\n[$nW/m^{3}$]')
-    add_legend(ax, ax.get_lines(), corner='NE', outside=True)
+    add_legend(ax, corner='NE', outside=True)
     
     # p-theta
     ax = axes[1,0]

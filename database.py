@@ -106,14 +106,14 @@ def load_data(t0, t1, mode='brst', dt_out=np.timedelta64(30, 'ms')):
     mec_data = get_data('mec', mode, t0, t1, dt_out)
 
     # Combine into a single dataset
-    try:
-        data = xr.merge([des_data, dis_data, edi_data,
-                         edp_data, fgm_data, mec_data])
-    except:
-        import pdb
-        pdb.set_trace()
+    data = xr.merge([des_data, dis_data, edi_data,
+                        edp_data, fgm_data, mec_data])
 
     # Save to data file
+    if 'units' in data['time'].attrs:
+        data['time'].attrs['UNITS'] = data['time'].attrs['units']
+        del data['time'].attrs['units']
+
     data.to_netcdf(fname)
 
     return fname
@@ -183,8 +183,11 @@ def get_data(instr, mode, t0, t1, dt_out=np.timedelta64(30, 'ms')):
         # Load the data
         try:
             data = func(sc, mode, t0, t1)
-        except:
-            print('No data for {0}_{1}_{2}_{3}_{4}'.format(sc, instr, mode, t0, t1))
+        except Exception as E:
+            print('Error processing {0} {1} {2} during interval {3} - {4}'
+                  .format(sc, instr, mode, t0, t1))
+            print('\t{0}'.format(type(E)))
+            print('\t{0}'.format(E))
             continue
 
         # Resample the data to a common time stamp

@@ -923,9 +923,6 @@ class Lookup_Table():
         # 2D V-Space Entropy LUT: sV vs. n
         #
 
-        import pdb
-        pdb.set_trace()
-
         ax = axes[2,0]
         self._plot(ax, sV_lut, n, n_EM, n_M, sV, sV_EM, sV_M,
                    xx=self.n_lut, yy=sV_lut)
@@ -1081,22 +1078,8 @@ def plot_max_lut(data):
     return fig, axes
 
 
-def main_ts():
+def main_ts(sc, mode, optdesc, t0, t1):
 
-    #
-    # Define the dataset
-    #
-    
-    # Time at which to select the distribution
-    ti = np.datetime64('2017-07-11T22:34:02.5')
-
-    # Define some input parameters
-    sc = 'mms4'
-    mode = 'brst'
-    optdesc = 'des-dist'
-    t0 = dt.datetime(2017, 7, 11, 22, 34, 2)
-    t1 = dt.datetime(2017, 7, 11, 22, 34, 3)
-    species = optdesc[1]
 
     #
     # Check if we already ran this interval
@@ -1140,6 +1123,7 @@ def main_ts():
     t_M = fpi.scalar_temperature(f_M)
     s_M = fpi.entropy(f_M)
     sv_M = fpi.vspace_entropy(f_M, n=n_M, s=s_M)
+    sv_rel_M = fpi.relative_entropy(des_pre, f_M)
 
     #
     # Make lists to gether output data
@@ -1151,6 +1135,7 @@ def main_ts():
     t_lut = list()
     s_lut = list()
     sv_lut = list()
+    sv_rel_lut = list()
 
     n = list()
     t = list()
@@ -1198,9 +1183,10 @@ def main_ts():
         t_err = np.abs(ti - t_M[idx]) / ti   # is this smaller than ∆t/t?
         if (n_err <= deltan_n) and (t_err <= deltat_t):
             print('Equivalent Maxwellian is good enough. Do not apply LUT.')
-            f_lut.append(f_M[idx,...])
-            n_lut.append(n_M[idx])
-            t_lut.append(t_M[idx])
+            _f = fpi.Distribution_Function.from_fpi(f_M[idx,...])
+            f_lut.append(_f)
+            n_lut.append(n_M[idx].data)
+            t_lut.append(t_M[idx].data)
             
         else:
             lut = Lookup_Table(deltan_n=deltan_n, deltat_t=deltat_t, species=species)
@@ -1210,12 +1196,15 @@ def main_ts():
             #     a density and temperature most similar to the measured distribution
             _f, _n, _t = lut.apply(fi, n=ni, t=ti) # Does not exist yet
             _f = fpi.Distribution_Function.from_fpi(_f)
-            _s = _f.entropy()
             f_lut.append(_f)
             n_lut.append(_n)
             t_lut.append(_t)
-            s_lut.append(_s)
-            sv_lut.append(_f.vspace_entropy(n=_n, s=_s))
+        
+        # Calculate LUT entropy parameters
+        _s = _f.entropy()
+        s_lut.append(_s)
+        sv_lut.append(_f.vspace_entropy(n=_n, s=_s))
+        sv_rel_lut.append(fi.relative_entropy(_f))
 
     #
     # Put everything into a dataset
@@ -1231,10 +1220,12 @@ def main_ts():
                            't_M': t_M,
                            's_M': s_M,
                            'sv_M': sv_M,
+                           'sv_rel_M': sv_rel_M,
                            'n_lut': (('time',), n_lut),
                            't_lut': (('time',), t_lut),
                            's_lut': (('time',), s_lut),
-                           'sv_lut': (('time',), sv_lut)},
+                           'sv_lut': (('time',), sv_lut),
+                           'sv_rel_lut': (('time',), sv_rel_lut)},
                            coords={'time': des_dist['time']})
 
     # Thermal velocity
@@ -1256,10 +1247,11 @@ def main_ts():
 
     # Plot the results
     fig, axes = plot_max_lut(lut_data)
-    plt.show()
+    
+    return fname, fig, axes
 
 
-def main(): #sc, mode, optdesc, t0, t1, ti):
+def main(sc, mode, optdesc, t0, t1, tj):
     
     # Time at which to select the distribution
 
@@ -1313,6 +1305,7 @@ def main(): #sc, mode, optdesc, t0, t1, ti):
     t_M = f_M.scalar_temperature()
     sV_M = f_M.vspace_entropy(n=n_M)
     s_M = f_M.maxwellian_entropy(n=n_M)
+    sV_rel_M = fi.relative_entropy(f_M)
 
     # Check if they are below the grid resolution
     n_err = np.abs(ni - n_M) / ni   # is this smaller than ∆n/n?
@@ -1331,6 +1324,7 @@ def main(): #sc, mode, optdesc, t0, t1, ti):
     f_M_lut = fpi.Distribution_Function.from_fpi(f_M_lut)
     s_M_lut = f_M_lut.maxwellian_entropy(n=n_lut)
     sV_lut = f_M_lut.vspace_entropy(n=n_lut)
+    sV_rel_lut = fi.relative_entropy(f_M_lut)
 
     # Non-Maxwellanity
     Mbar_M = (sV_M - sVi) / sV_M
@@ -1373,10 +1367,100 @@ def main(): #sc, mode, optdesc, t0, t1, ti):
     print('Temperature:         {0:>7.4f}       {1:>7.4f}     {2:>7.4f}'.format(ti, t_M, t_lut))
     print('Maxwellian Entropy:  {0:2.4e}       {1:2.4e}     {2:2.4e}'.format(si_M, s_M, s_M_lut))
     print('V-Space Entropy:     {0:2.4e}       {1:2.4e}     {2:2.4e}'.format(sVi, sV_M, sV_lut))
+    print('Relative Entropy:                   {0:2.4e}     {1:2.4e}'.format(sV_rel_M, sV_rel_lut))
     print('Non-Maxwellianity:                  {0:2.4f}     {1:2.4f}'.format(Mbar_M, Mbar_lut))
 
-    plt.show()
+    return fig, axes
 
 
 if __name__ == '__main__':
-    main_ts()
+    import argparse
+    import datetime as dt
+    from os import path
+    
+    parser = argparse.ArgumentParser(
+        description='Plot an overview of MMS data.'
+        )
+    
+    parser.add_argument('sc', 
+                        type=str,
+                        help='Spacecraft Identifier')
+    
+    parser.add_argument('mode', 
+                        type=str,
+                        help='Data rate mode')
+    
+    parser.add_argument('start_date', 
+                        type=str,
+                        help='Start date of the data interval: '
+                             '"YYYY-MM-DDTHH:MM:SS""'
+                        )
+    
+    parser.add_argument('end_date', 
+                        type=str,
+                        help='End date of the data interval: '
+                             '"YYYY-MM-DDTHH:MM:SS""'
+                        )
+    
+    parser.add_argument('-t', '--time', 
+                        type=str,
+                        help='A single look-up table time: '
+                             '"YYYY-MM-DDTHH:MM:SS""'
+                        )
+                        
+    parser.add_argument('-o', '--optdesc',
+                        type=str,
+                        default='des-dist',
+                        help='Optional descriptor specifying species')
+    
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('-d', '--dir',
+                       type=str,
+                       help='Path to output destination',
+                       )
+                        
+    group.add_argument('-f', '--filename',
+                       type=str,
+                       help='Output file name',
+                       )
+                        
+    parser.add_argument('-n', '--no-show',
+                        help='Do not show the plot.',
+                        action='store_true')
+
+    args = parser.parse_args()
+    t0 = dt.datetime.strptime(args.start_date, '%Y-%m-%dT%H:%M:%S')
+    t1 = dt.datetime.strptime(args.end_date, '%Y-%m-%dT%H:%M:%S')
+    tj = args.time
+    if tj is not None:
+        tj = dt.datetime.strptime(tj, '%Y-%m-%dT%H:%M:%S')
+    
+    # Create the look-up table
+    if tj is None:
+        lut_file, fig, axes = main_ts(args.sc, args.mode, args.optdesc, t0, t1)
+        print('LUT file saved to: {0}'.format(lut_file))
+    else:
+        fig, axes = main(args.sc, args.mode, args.optdesc, t0, t1, tj)
+    
+    # Save to plot to directory
+    if args.dir is not None:
+        if tj is not None:
+            fname = '_'.join((args.sc, args.optdesc[0:3], args.mode, 'l2', 'lut',
+                              tj.strftime('%Y%m%d'), tj.strftime('%H%M%S')))
+        elif t0.date() == t1.date():
+            fname = '_'.join((args.sc, args.optdesc[0:3], args.mode, 'l2', 'lut',
+                              t0.strftime('%Y%m%d'), t0.strftime('%H%M%S'),
+                              t1.strftime('%H%M%S')))
+        else:
+            fname = '_'.join((args.sc, args.optdesc[0:3], args.mode, 'l2', 'lut',
+                              t0.strftime('%Y%m%d'), t0.strftime('%H%M%S'),
+                              t1.strftime('%Y%m%d'), t1.strftime('%H%M%S')))
+        plt.savefig(path.join(args.dir, fname + '.png'))
+    
+    # Save to file
+    if args.filename is not None:
+        plt.savefig(args.filename)
+    
+    # Show on screen
+    if not args.no_show:
+        plt.show()

@@ -278,8 +278,8 @@ def pE_rel_pt(R, sV_rel, n_M, t_M, v_str):
                         pE_rel[['sVr_n1', 'sVr_n2', 'sVr_n3', 'sVr_n4']]
                  ) # J/K/s
     pE_rel['dsV_rel_dr'] = xr.DataArray(dsV_rel_dr,
-                                    dims=('time',),
-                                    coords={'time': sV_rel['time']})
+                                        dims=('time',),
+                                        coords={'time': sV_rel['time']})
 
     # HORNET
     pE_rel['HORNET'] = (-1e15 * barycentric_avg(n_M)
@@ -714,7 +714,11 @@ def agyrotropy(P, b):
     return Q
 
 
-def permutation_entropy(x, n):
+def jenson_complexity():
+    pass
+
+
+def permutation_entropy(x, d, tau=1):
     '''
     
     Parameters
@@ -724,16 +728,21 @@ def permutation_entropy(x, n):
     n : 
         Embedding dimension
     '''
-    n_windows = len(x) - n + 1
-    total_permutations = np.math.factorial(n)
+    if d <= 1:
+        raise ValueError('d must be > 1, not {0}'.format(d))
+    if tau <= 0:
+        raise ValueError('tau must be > 0, not {0}'.format(tau))
 
-    permutations = list(itertools.permutations(np.arange(n), n))
+    n_windows = len(x) - (d - 1)*tau
+    total_permutations = np.math.factorial(d)
+
+    permutations = list(itertools.permutations(np.arange(d), d))
 
     # Sliding window iterable
     #    https://stackoverflow.com/questions/6822725/rolling-or-sliding-window-iterator
     occurrence = np.zeros(total_permutations)
-    for i in range(n_windows):
-        symbol = tuple(np.argsort(x[i:i+n])) # pi
+    for i in range(0, n_windows, tau):
+        symbol = tuple(np.argsort(x[i:i+d])) # pi
         idx = permutations.index(symbol)
         occurrence[idx] += 1 #
 
@@ -745,3 +754,177 @@ def permutation_entropy(x, n):
                 * np.log2(probability, np.zeros_like(probability), where=probability!=0))
 
     return H
+
+
+def permutation_entropy_2(x, d, tau=1):
+
+
+    partitions = np.lib.stride_tricks.sliding_window_view(
+                    x,
+                    window_shape = (d+(d-1)*(tau-1),),
+                    axis = 0
+    )
+    partitions[:,::tau]
+    partitions = np.argsort(partitions, axis=1).T
+    symbols, symbol_count = np.unique(partitions, return_counts=True, axis=0)
+    probability = symbol_count / symbol_count.sum()
+    entropy = -np.sum(probability * np.log2(probability))
+    norm_entropy = entropy / np.log2(np.math.factorial(d))
+
+    return norm_entropy
+
+
+def main(data):
+    
+
+    # Determine sample size, etc.
+    N = len(data)
+    d = 2
+    tau = 1
+    n_segs = N - (d - 1) * tau
+    '''
+    print('Samples:             {0:10d}'.format(N))
+    print('Embedding delay:     {0:10d}'.format(tau))
+    print('Embedding dimension: {0:10d}'.format(d))
+    print('Segments:            {0:10d}'.format(n_segs))
+    print('Segment Ratio:       {0:0.4f}'.format(n_segs / N))
+    '''
+
+    d_max = 6
+    tau_max = N // 100
+    n_segs_min = N - (d_max - 1) * tau_max
+
+    H = dict()
+    for d in range(2, 8):
+        pe = [permutation_entropy_2(data, d, tau=tau)
+              for tau in range(1, tau_max)]
+        H[d] = pe
+
+    return H
+    
+
+if __name__ == '__main__':
+    from matplotlib import pyplot as plt
+    import plots
+    import datetime as dt
+    from pymms.sdc import selections as sel
+    from pymms.data import fgm
+
+    import ordpy
+
+    '''
+    2023-02-27/16:33:23 - 2023-02-27/16:36:23, 105.0, yqi(EVA),  unbiased magnetosheath campaign
+    2023-02-27/16:42:13 - 2023-02-27/16:45:13, 105.0, yqi(EVA),  unbiased magnetosheath campaign
+    2023-02-27/16:51:03 - 2023-02-27/16:54:03, 105.0, yqi(EVA),  unbiased magnetosheath campaign
+    2023-02-27/16:59:53 - 2023-02-27/17:02:53, 105.0, yqi(EVA),  unbiased magnetosheath campaign
+    2023-02-27/17:08:43 - 2023-02-27/17:11:43, 105.0, yqi(EVA),  unbiased magnetosheath campaign
+    2023-02-27/17:17:33 - 2023-02-27/17:20:33, 105.0, yqi(EVA),  unbiased magnetosheath campaign
+    2023-02-27/17:26:23 - 2023-02-27/17:29:23, 105.0, yqi(EVA),  unbiased magnetosheath campaign
+    '''
+    t0 = dt.datetime(2023, 2, 27, 16, 33, 23)
+    t1 = dt.datetime(2023, 2, 27, 17, 29, 24)
+
+    '''
+    2023-03-24/04:42:53 - 2023-03-24/04:45:53, 105.0, sraptis(EVA), unbiased magnetosheath campaign
+    2023-03-24/04:51:53 - 2023-03-24/04:54:53, 105.0, sraptis(EVA), unbiased magnetosheath campaign
+    2023-03-24/05:00:53 - 2023-03-24/05:03:53, 105.0, sraptis(EVA), unbiased magnetosheath campaign
+    2023-03-24/05:09:43 - 2023-03-24/05:12:43, 105.0, sraptis(EVA), unbiased magnetosheath campaign
+    2023-03-24/05:18:43 - 2023-03-24/05:21:43, 105.0, sraptis(EVA), unbiased magnetosheath campaign
+    2023-03-24/05:27:43 - 2023-03-24/05:30:43, 105.0, sraptis(EVA), unbiased magnetosheath campaign
+    2023-03-24/05:36:43 - 2023-03-24/05:39:43, 105.0, sraptis(EVA), unbiased magnetosheath campaign
+    2023-03-24/05:45:43 - 2023-03-24/05:48:43, 105.0, sraptis(EVA), unbiased magnetosheath campaign
+    2023-03-24/05:54:33 - 2023-03-24/05:57:33, 105.0, sraptis(EVA), unbiased magnetosheath campaign
+    2023-03-24/06:03:33 - 2023-03-24/06:06:33, 105.0, sraptis(EVA), unbiased magnetosheath campaign
+    2023-03-24/06:12:33 - 2023-03-24/06:15:33, 105.0, sraptis(EVA), unbiased magnetosheath campaign
+    2023-03-24/06:21:33 - 2023-03-24/06:24:33, 105.0, sraptis(EVA), unbiased magnetosheath campaign
+    2023-03-24/06:30:33 - 2023-03-24/06:33:33, 105.0, sraptis(EVA), unbiased magnetosheath campaign
+    2023-03-24/06:39:23 - 2023-03-24/06:42:23, 105.0, sraptis(EVA), unbiased magnetosheath campaign
+    2023-03-24/06:48:23 - 2023-03-24/06:51:23, 105.0, sraptis(EVA), unbiased magnetosheath campaign
+    '''
+    # t0 = dt.datetime(2023, 3, 24, 4, 42, 53)
+    # t1 = dt.datetime(2023, 3, 24, 6, 51, 24)
+
+    # Define a time interval
+    #   - First segment in unbiased magnetosheath campaign
+    #   - Near bow shock
+    # https://lasp.colorado.edu/mms/sdc/public/plots/#/quicklook?plot_type=all_mms1_summ&year=2024&month=04&day=06&time=0400_0120
+    # https://lasp.colorado.edu/mms/sdc/public/about/events/#/show/284037
+    # Time interval of unbiased magnetosheath campaign
+    selections = sel.selections('sitl', t0, t1, combine=True, sort=True, filter='unbiased')
+
+    # Grab the survey data
+    # b_data = fgm.load_data(sc='mms4', mode='srvy', start_date=t0, end_date=t1)
+    # data = b_data['B_GSE'].loc[:,'x']
+
+    # Create the figure
+    ncols = int(np.ceil(np.sqrt(len(selections))))
+    nrows = ncols
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(7,7), squeeze=False)
+    plt.subplots_adjust(left=0.08, right=0.9, top=0.97, bottom=0.07, wspace=0.1, hspace=0.1)
+
+    entropy = np.zeros(len(selections))
+    complexity = np.zeros(len(selections))
+    for idx, segment in enumerate(selections):
+        irow = idx // ncols
+        icol = idx % nrows
+
+        # Select the subset of time
+        # ts = segment.tstart
+        # te = segment.tstop
+        # data = b_data['B_GSE'].loc[:,'x'].sel(time=slice(ts, te))
+        ts = segment.tstart.astype(dt.datetime)
+        te = segment.tstop.astype(dt.datetime)
+        b_data = fgm.load_data(sc='mms4', mode='brst', start_date=ts, end_date=te)
+        data = b_data['B_GSE'].loc[:,'x']
+
+        # Permutation entropy as a function of embedding delay
+        H_tau = dict()
+        for d in range(2, 9):
+            H_tau[d] = [ordpy.permutation_entropy(data, dx=d, taux=tau)
+                        for tau in range(int(len(data)/100))]
+
+        # Compute the entropy
+        H, C = ordpy.entropy_complexity(data, dx=3)
+        entropy[idx] = H
+        complexity[idx] = C
+
+        # Plot H(tau)
+        ax = axes[irow,icol]
+        for key, value in H_tau.items():
+            ax.plot(np.arange(1, len(value)+1), value, label='d={0}'.format(key))
+        ax.set_ylabel('H')
+        ax.set_xlabel('$\\tau$')
+
+        # Add a legend to the upper-right panel
+        if (irow == 0) & (icol == ncols-1):
+            plots.add_legend(ax, outside=True)
+        
+        # Turn off y-labels for all but the left column
+        if icol != 0:
+            ax.set_ylabel('')
+            ax.set_yticklabels('')
+        
+        # Turn off x-labels for all but the bottom row
+        if irow != nrows-1:
+            ax.set_xlabel('')
+            ax.set_xticklabels('')
+
+    import pdb
+    pdb.set_trace()
+
+    # Plot C(H)
+    fig, axes = plt.subplots(nrows=1, ncols=1, squeeze=False)
+    ax = axes[0,0]
+    ax.plot(C, H)
+    ax.plot(HC_min)
+    ax.plot(HC_max)
+
+    # Theoretical minimum and maximum entropy-complexity curves
+    HC_min = ordpy.minimum_complexity_entropy(dx=3)
+    HC_max = ordpy.maximum_complexity_entropy(dx=3)
+
+    plt.show(block=False)
+    import pdb
+    pdb.set_trace()
+    
+
