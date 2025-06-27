@@ -810,6 +810,7 @@ if __name__ == '__main__':
     from pymms.sdc import selections as sel
     from pymms.data import fgm
 
+    from tqdm import tqdm
     import ordpy
 
     '''
@@ -821,8 +822,8 @@ if __name__ == '__main__':
     2023-02-27/17:17:33 - 2023-02-27/17:20:33, 105.0, yqi(EVA),  unbiased magnetosheath campaign
     2023-02-27/17:26:23 - 2023-02-27/17:29:23, 105.0, yqi(EVA),  unbiased magnetosheath campaign
     '''
-    t0 = dt.datetime(2023, 2, 27, 16, 33, 23)
-    t1 = dt.datetime(2023, 2, 27, 17, 29, 24)
+    # t0 = dt.datetime(2023, 2, 27, 16, 33, 23)
+    # t1 = dt.datetime(2023, 2, 27, 17, 29, 24)
 
     '''
     2023-03-24/04:42:53 - 2023-03-24/04:45:53, 105.0, sraptis(EVA), unbiased magnetosheath campaign
@@ -841,8 +842,8 @@ if __name__ == '__main__':
     2023-03-24/06:39:23 - 2023-03-24/06:42:23, 105.0, sraptis(EVA), unbiased magnetosheath campaign
     2023-03-24/06:48:23 - 2023-03-24/06:51:23, 105.0, sraptis(EVA), unbiased magnetosheath campaign
     '''
-    # t0 = dt.datetime(2023, 3, 24, 4, 42, 53)
-    # t1 = dt.datetime(2023, 3, 24, 6, 51, 24)
+    t0 = dt.datetime(2023, 3, 24, 4, 42, 53)
+    t1 = dt.datetime(2023, 3, 24, 6, 51, 24)
 
     # Define a time interval
     #   - First segment in unbiased magnetosheath campaign
@@ -876,15 +877,16 @@ if __name__ == '__main__':
         te = segment.tstop.astype(dt.datetime)
         b_data = fgm.load_data(sc='mms4', mode='brst', start_date=ts, end_date=te)
         data = b_data['B_GSE'].loc[:,'x']
-
+        
         # Permutation entropy as a function of embedding delay
         H_tau = dict()
-        for d in range(2, 9):
+        for d in tqdm(range(2, 8)):
             H_tau[d] = [ordpy.permutation_entropy(data, dx=d, taux=tau)
-                        for tau in range(int(len(data)/100))]
+                        for tau in range(1, int(len(data)/100))]
 
         # Compute the entropy
-        H, C = ordpy.entropy_complexity(data, dx=3)
+        dx = 6
+        H, C = ordpy.complexity_entropy(data, dx=dx)
         entropy[idx] = H
         complexity[idx] = C
 
@@ -909,19 +911,18 @@ if __name__ == '__main__':
             ax.set_xlabel('')
             ax.set_xticklabels('')
 
-    import pdb
-    pdb.set_trace()
+    # Theoretical minimum and maximum entropy-complexity curves
+    HC_min = ordpy.minimum_complexity_entropy(dx=dx, size=1000)
+    HC_max = ordpy.maximum_complexity_entropy(dx=dx, m=1000)
 
     # Plot C(H)
     fig, axes = plt.subplots(nrows=1, ncols=1, squeeze=False)
     ax = axes[0,0]
-    ax.plot(C, H)
-    ax.plot(HC_min)
-    ax.plot(HC_max)
-
-    # Theoretical minimum and maximum entropy-complexity curves
-    HC_min = ordpy.minimum_complexity_entropy(dx=3)
-    HC_max = ordpy.maximum_complexity_entropy(dx=3)
+    ax.scatter(entropy, complexity, cmap=plt.get_cmap('cool', lut=len(entropy)))
+    ax.plot(HC_min[:,0], HC_min[:,1], color='black')
+    ax.plot(HC_max[:,0], HC_max[:,1], color='black')
+    ax.set_xlabel('Permutation Entropy, $H$')
+    ax.set_ylabel('Statistical Complexity, $C$')
 
     plt.show(block=False)
     import pdb

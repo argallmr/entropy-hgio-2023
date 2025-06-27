@@ -6,6 +6,11 @@ from matplotlib import pyplot as plt, dates as mdates, cm, ticker
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
+import ordpy
+import datetime as dt
+from pymms.sdc import selections as sel
+from pymms.data import fgm
+
 import database, physics, tools
 
 # Create label locator
@@ -133,7 +138,7 @@ def add_legend(ax, corner='NE', outside=False, horizontal=False,
             idx += 1
 
 
-def add_colorbar(ax, im):
+def add_colorbar(ax, im, corner='SE', outside=True, horizontal=False, pad=0.05):
     '''
     Add a colorbar to the axes.
 
@@ -144,12 +149,49 @@ def add_colorbar(ax, im):
     im : `matplotlib.axes.Axes.pcolorfast`
         The image that the colorbar will represent.
     '''
+    
+    width = 1
+    height = 1
+    if corner == 'N':
+        bbox_to_anchor = (0.5, 1+pad, width, height)
+        loc = 'lower center' if outside else 'upper center'
+    elif corner == 'NE':
+        bbox_to_anchor = (1+pad, 1, width, height)
+        loc = 'upper left' if outside else 'upper right'
+    elif corner == 'E':
+        bbox_to_anchor = (1+pad, 0.5, width, height)
+        loc = 'center left' if outside else 'center right'
+    elif corner == 'SE':
+        bbox_to_anchor = (1+pad, 0, width, height)
+        loc = 'lower left' if outside else 'lower right'
+    elif corner == 'S':
+        bbox_to_anchor = (0.5, 0-pad, width, height)
+        loc = 'upper center' if outside else 'lower center'
+    elif corner == 'SW':
+        bbox_to_anchor = (0-pad, 0, width, height)
+        loc = 'lower right' if outside else 'lower left'
+    elif corner == 'W':
+        bbox_to_anchor = (0-pad, 0.5, width, height)
+        loc = 'center right' if outside else 'center left'
+    elif corner == 'NW':
+        bbox_to_anchor = (0-pad, 1, width, height)
+        loc = 'upper right' if outside else 'upper left'
+    
+    if horizontal:
+        orientation = 'horizontal'
+        width='100%'
+        height='2%'
+    else:
+        orientation = 'vertical'
+        width='2%'
+        height='100%'
+    
     cbaxes = inset_axes(ax,
-                        width='2%', height='100%', loc=4,
-                        bbox_to_anchor=(0, 0, 1.05, 1),
+                        width=width, height=height, loc=loc,
+                        bbox_to_anchor=bbox_to_anchor,
                         bbox_transform=ax.transAxes,
                         borderpad=0)
-    cb = plt.colorbar(im, cax=cbaxes, orientation='vertical')
+    cb = plt.colorbar(im, cax=cbaxes, orientation=orientation)
     cb.ax.minorticks_on()
     
     return cb
@@ -280,7 +322,38 @@ def load_entropy():
     return ds
 
 
-def dissipation_measures(t0, t1, mode='srvy', t_smooth=None):
+def entropy_complexity(entropy, complexity, d=3,
+                       cmap='cool', cbpad=0.05, ax=None):
+
+    if ax is None:
+        fig, ax = plt.subplots(nrows=1, ncols=1)
+    else:
+        fig = ax.get_figure()
+
+    # Theoretical minimum and maximum entropy-complexity curves
+    HC_min = ordpy.minimum_complexity_entropy(dx=d, size=1000)
+    HC_max = ordpy.maximum_complexity_entropy(dx=d, m=1000)
+
+    # Plot C(H)
+    h1 = ax.scatter(entropy, complexity, c=np.arange(1, len(entropy)+1),
+                    vmin=1, vmax=len(entropy),
+                    cmap=plt.get_cmap(cmap, lut=len(entropy)))
+    ax.plot(HC_min[:,0], HC_min[:,1], color='black')
+    ax.plot(HC_max[:,0], HC_max[:,1], color='black')
+    ax.set_xlabel('Permutation Entropy, $H$')
+    ax.set_ylabel('Statistical Complexity, $C$')
+    cb = add_colorbar(ax, h1, pad=cbpad)
+    # add_colorbar(ax, h1)
+
+    return fig, ax
+
+
+def dissipation_measures(t0, t1, mode='srvy', species='e', t_smooth=None):
+
+    nn = 'n' + species
+    VV = 'V' + species
+    pp = 'p' + species
+    PP = 'P' + species
 
     # Get the dataset
     fname = database.load_data(t0, t1, mode=mode)
@@ -306,26 +379,30 @@ def dissipation_measures(t0, t1, mode='srvy', t_smooth=None):
     
     De_curl = physics.De_curl(data[['E1', 'E2', 'E3', 'E4']],
                               data[['B1', 'B2', 'B3', 'B4']],
-                              data[['Ve1', 'Ve2', 'Ve3', 'Ve4']],
+                              data[[VV+'1', VV+'2', VV+'3', VV+'4']],
                               data[['r1', 'r2', 'r3', 'r4']])
 
     # Calculate p-theta
     ptheta = physics.pressure_dilatation(data[['r1', 'r2', 'r3', 'r4']],
-                                         data[['Ve1', 'Ve2', 'Ve3', 'Ve4']],
-                                         data[['pe1', 'pe2', 'pe3', 'pe4']].rename({'pe1': 'p1', 'pe2': 'p2', 'pe3': 'p3', 'pe4': 'p4'}),
+                                         data[[VV+'1', VV+'2', VV+'3', VV+'4']],
+                                         (data[[pp+'1', pp+'2', pp+'3', pp+'4']]
+                                          .rename({pp+'1': 'p1',
+                                                   pp+'2': 'p2',
+                                                   pp+'3': 'p3',
+                                                   pp+'4': 'p4'})),
                                          )
 
     # Calculate Pi-D
     PiD = physics.PiD(data[['r1', 'r2', 'r3', 'r4']],
-                      data[['Ve1', 'Ve2', 'Ve3', 'Ve4']],
-                      data[['pe1', 'pe2', 'pe3', 'pe4']].rename({'pe1': 'p1',
-                                                                 'pe2': 'p2',
-                                                                 'pe3': 'p3',
-                                                                 'pe4': 'p4'}),
-                      data[['Pe1', 'Pe2', 'Pe3', 'Pe4']].rename({'Pe1': 'P1',
-                                                                 'Pe2': 'P2',
-                                                                 'Pe3': 'P3',
-                                                                 'Pe4': 'P4'}))
+                      data[[VV+'1', VV+'2', VV+'3', VV+'4']],
+                      data[[pp+'1', pp+'2', pp+'3', pp+'4']].rename({pp+'1': 'p1',
+                                                                     pp+'2': 'p2',
+                                                                     pp+'3': 'p3',
+                                                                     pp+'4': 'p4'}),
+                      data[[PP+'1', PP+'2', PP+'3', PP+'4']].rename({PP+'1': 'P1',
+                                                                     PP+'2': 'P2',
+                                                                     PP+'3': 'P3',
+                                                                     PP+'4': 'P4'}))
 
     # Smooth the entropy data
     if t_smooth is None:
@@ -386,6 +463,7 @@ def dissipation_measures(t0, t1, mode='srvy', t_smooth=None):
     ax.set_xticklabels([])
     ax.set_ylabel('De\n[$nW/m^{3}$]')
     add_legend(ax, corner='NE', outside=True)
+    format_axes(ax, xaxis='off')
     
     # p-theta
     ax = axes[1,0]
@@ -394,6 +472,7 @@ def dissipation_measures(t0, t1, mode='srvy', t_smooth=None):
     ax.set_xlabel('')
     ax.set_xticklabels([])
     ax.set_ylabel('$-p\\theta$\n[$nW/m^{3}$]')
+    format_axes(ax, xaxis='off')
     
     # Pi-D
     ax = axes[2,0]
@@ -402,6 +481,7 @@ def dissipation_measures(t0, t1, mode='srvy', t_smooth=None):
     ax.set_ylabel('$-\Pi-D$\n[$nW/m^{3}$]')
     ax.set_xlabel('')
     ax.set_xticklabels([])
+    format_axes(ax, xaxis='off')
 
     # HORENET
     ax = axes[3,0]

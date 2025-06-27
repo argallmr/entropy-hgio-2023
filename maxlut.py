@@ -1098,7 +1098,7 @@ def main_ts(sc, mode, optdesc, t0, t1):
         lut_data = xr.load_dataset(fname)
         fig, axes = plot_max_lut(lut_data)
         plt.show()
-        return
+        return fname, fig, axes
     
     #
     # Get the FPI data
@@ -1195,7 +1195,7 @@ def main_ts(sc, mode, optdesc, t0, t1):
             #   - Find the Maxwellian distribution within the look-up table that has
             #     a density and temperature most similar to the measured distribution
             _f, _n, _t = lut.apply(fi, n=ni, t=ti) # Does not exist yet
-            _f = fpi.Distribution_Function.from_fpi(_f)
+            _f = fpi.Distribution_Function.from_fpi(_f, time=des_pre['time'][idx].data)
             f_lut.append(_f)
             n_lut.append(_n)
             t_lut.append(_t)
@@ -1252,20 +1252,6 @@ def main_ts(sc, mode, optdesc, t0, t1):
 
 
 def main(sc, mode, optdesc, t0, t1, tj):
-    
-    # Time at which to select the distribution
-
-    # Define some input parameters
-    sc = 'mms4'
-    mode = 'brst'
-    optdesc = 'des-dist'
-    # t0 = dt.datetime(2017, 7, 11, 22, 34, 0)
-    # t1 = dt.datetime(2017, 7, 11, 22, 34, 5)
-    # tj = np.datetime64('2017-07-11T22:34:02')
-
-    t0 = dt.datetime(2016, 10, 22, 12, 59, 4)
-    t1 = dt.datetime(2016, 10, 22, 12, 59, 17)
-    tj = np.datetime64('2016-10-22T12:59:08')
 
     # Load and precondition the distribution functions
     des_dist = fpi.load_dist(sc=sc, mode=mode, optdesc=optdesc,
@@ -1355,6 +1341,7 @@ def main(sc, mode, optdesc, t0, t1, tj):
     f_M_lut_E.plot(ax=ax, marker='*', label='$f_{e,\mathrm{M},\mathrm{LUT}}$')
     fi_E.plot(ax=ax, marker='o', label='$f_{e,\mathrm{pre}}$')
     ax.axvline(Vsci * e * J2eV, color='black')
+    ax.set_title(f_fpi['time'].data)
     ax.set_xlabel('E (eV)')
     ax.set_xscale('log')
     ax.set_ylabel('$f_{e}$\n[$s^{3}/cm^{6}$]')
@@ -1433,7 +1420,10 @@ if __name__ == '__main__':
     t1 = dt.datetime.strptime(args.end_date, '%Y-%m-%dT%H:%M:%S')
     tj = args.time
     if tj is not None:
-        tj = dt.datetime.strptime(tj, '%Y-%m-%dT%H:%M:%S')
+        try:
+            tj = dt.datetime.strptime(tj, '%Y-%m-%dT%H:%M:%S')
+        except ValueError:
+            tj = dt.datetime.strptime(tj, '%Y-%m-%dT%H:%M:%S.%f')
     
     # Create the look-up table
     if tj is None:
