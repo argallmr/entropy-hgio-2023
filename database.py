@@ -63,7 +63,7 @@ def filename(sc, mode, t0, t1, optdesc=None):
     return file_path
 
 
-def load_data(t0, t1, mode='brst', dt_out=np.timedelta64(30, 'ms')):
+def load_data(t0, t1, mode='brst', overwrite=False, dt_out=np.timedelta64(30, 'ms')):
     '''
     Load MMS data for a given time interval. Data loaded are the
       * MEC - spacecraft position
@@ -94,7 +94,7 @@ def load_data(t0, t1, mode='brst', dt_out=np.timedelta64(30, 'ms')):
     fname = filename('mms', mode, t0, t1)
 
     # If it already exists, return it
-    if fname.exists():
+    if fname.exists() and (not overwrite):
         return fname
 
     # Get the data from each spacecraft
@@ -107,7 +107,7 @@ def load_data(t0, t1, mode='brst', dt_out=np.timedelta64(30, 'ms')):
 
     # Combine into a single dataset
     data = xr.merge([des_data, dis_data, edi_data,
-                        edp_data, fgm_data, mec_data])
+                     edp_data, fgm_data, mec_data])
 
     # Save to data file
     if 'units' in data['time'].attrs:
@@ -242,7 +242,7 @@ def get_mec_data(sc, mode, t0, t1):
     r_data = (r_data[[sc+'_mec_r_gse', sc+'_mec_mlat', sc+'_mec_mlt', sc+'_mec_l_dipole']]
               .rename({'Epoch': 'time',
                        sc+'_mec_r_gse_label': 'component',
-                       sc+'_mec_r_gse': 'r' + sc[-1] + '_GSE',
+                       sc+'_mec_r_gse': 'r' + sc[-1],
                        sc+'_mec_mlat': 'mlat' + sc[-1],
                        sc+'_mec_mlt': 'mlt' + sc[-1],
                        sc+'_mec_l_dipole': 'l' + sc[-1],})

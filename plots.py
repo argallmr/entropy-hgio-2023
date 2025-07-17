@@ -200,7 +200,7 @@ def add_colorbar(ax, im, corner='SE', outside=True, horizontal=False, pad=0.05):
 def overview(sc, t0, t1, mode='srvy'):
 
     # Create the file name
-    fname = database.filename(mode, t0, t1)
+    fname = database.filename('mms', mode, t0, t1)
 
     # Load the data
     data = xr.load_dataset(fname)
@@ -208,7 +208,8 @@ def overview(sc, t0, t1, mode='srvy'):
     RE = 6378 # km
     sc = sc[3]
 
-    fig, axes = plt.subplots(nrows=7, ncols=1, squeeze=False, figsize=(8,7))
+    fig, axes = plt.subplots(nrows=7, ncols=1, squeeze=False, figsize=(6,7))
+    plt.subplots_adjust(left=0.2, top=0.95)
 
     # Magnetic Field
     ax = axes[0,0]
@@ -217,9 +218,9 @@ def overview(sc, t0, t1, mode='srvy'):
     data['B'+sc][:,2].plot(ax=ax, label='Bz', color='red')
     ax.set_title('')
     ax.set_xlabel('')
-    ax.set_xticklabels([])
     ax.set_ylabel('B\n[nT]')
-    ax.legend()
+    format_axes(ax, xaxis='off')
+    add_legend(ax, outside=True)
 
     # Electric Field
     ax = axes[1,0]
@@ -228,9 +229,9 @@ def overview(sc, t0, t1, mode='srvy'):
     data['E'+sc][:,2].plot(ax=ax, label='Ez', color='red')
     ax.set_title('')
     ax.set_xlabel('')
-    ax.set_xticklabels([])
     ax.set_ylabel('E\n[mV/m]')
-    ax.legend()
+    format_axes(ax, xaxis='off')
+    add_legend(ax, outside=True)
 
     # Plasma Density
     ax = axes[2,0]
@@ -238,9 +239,9 @@ def overview(sc, t0, t1, mode='srvy'):
     data['ne'+sc].plot(ax=ax, label='ne', color='red')
     ax.set_title('')
     ax.set_xlabel('')
-    ax.set_xticklabels([])
     ax.set_ylabel('n\n[$cm^{-3}$]')
-    ax.legend()
+    format_axes(ax, xaxis='off')
+    add_legend(ax, outside=True)
 
     # Ion Velocity
     ax = axes[3,0]
@@ -249,9 +250,9 @@ def overview(sc, t0, t1, mode='srvy'):
     data['Vi'+sc][:,2].plot(ax=ax, label='Vz', color='red')
     ax.set_title('')
     ax.set_xlabel('')
-    ax.set_xticklabels([])
     ax.set_ylabel('Vi\n[$km/s$]')
-    ax.legend()
+    format_axes(ax, xaxis='off')
+    add_legend(ax, outside=True)
 
     # Electron Velocity
     ax = axes[4,0]
@@ -260,9 +261,9 @@ def overview(sc, t0, t1, mode='srvy'):
     data['Ve'+sc][:,2].plot(ax=ax, label='Vz', color='red')
     ax.set_title('')
     ax.set_xlabel('')
-    ax.set_xticklabels([])
     ax.set_ylabel('Ve\n[$km/s$]')
-    ax.legend()
+    format_axes(ax, xaxis='off')
+    add_legend(ax, outside=True)
 
     # Scalar Pressure
     ax = axes[5,0]
@@ -270,9 +271,9 @@ def overview(sc, t0, t1, mode='srvy'):
     data['pe'+sc].plot(ax=ax, label='pe', color='red')
     ax.set_title('')
     ax.set_xlabel('')
-    ax.set_xticklabels([])
     ax.set_ylabel('pe\n[nPa]')
-    ax.legend()
+    format_axes(ax, xaxis='off')
+    add_legend(ax, outside=True)
 
     # Location
     ax = axes[6,0]
@@ -280,8 +281,10 @@ def overview(sc, t0, t1, mode='srvy'):
     (data['r'+sc][:,1]/RE).plot(ax=ax, label='y', color='green')
     (data['r'+sc][:,2]/RE).plot(ax=ax, label='z', color='red')
     ax.set_title('')
+    ax.set_xlabel('')
     ax.set_ylabel('r\n[$R_{E}$]')
-    ax.legend()
+    format_axes(ax)
+    add_legend(ax, outside=True)
 
     plt.show()
 
