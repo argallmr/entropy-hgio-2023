@@ -1078,22 +1078,57 @@ def plot_max_lut(data):
     return fig, axes
 
 
-def main_ts(sc, mode, optdesc, t0, t1):
+def filename(sc, mode, optdesc, t0, t1):
 
+    # Format start time as YYYYMMDD_HHMMSS
+    t0_str = t0.strftime('%Y%m%d_%H%M%S')
+
+    # Format end time as
+    #   - HHMMSS if date is same as start date
+    #   - YYYYMMDD_HHMMSS if date is different from start date
+    if t0.date() == t1.date():
+        t1_str = t1.strftime('%H%M%S')
+    else:
+        t1_str = t1.strftime('%Y%m%d_%H%M%S')
+
+    # Create a file name to output the data
+    # dropbox_root / sc_d[ie]s_mode_s_YYYYMMDD_HHMMSS[_YYYYMMDD]_HHMMSS
+    fname = (dropbox_root / '_'.join((sc, optdesc[0:3], mode, 's', t0_str, t1_str))
+             ).with_suffix('.nc')
+
+    return fname
+
+
+def main_ts(sc, mode, optdesc, t0, t1):
+    '''
+    Using a Maxwellian Look-up Table (LUT), calculate kinetic entropy
+    parameters over a given time interval and save them to a file.
+
+    Parameters
+    ----------
+    sc : str
+        Spacecraft identifier (mms1, mms2, mms3, mms4)
+    mode : str
+        Data rate mode (srvy, brst)
+    t0, t1 : `datetime.datetime`
+        Start and end times of the data interval
+    
+    Returns
+    -------
+    fname : `pathlib.Path`
+        Full file path of the output file. Format is 
+        `dropbox_root/sc_d[ie]s_mode_s_YYYYMMDD_HHMMSS_HHMMSS.nc
+    fig : `matplotlib.Figure`
+        Figure into which a plot of the look-up table results is placed
+    axes : `matplotlib.axes.Axes`
+        Axes in which the LUT results are drawn
+    '''
 
     #
     # Check if we already ran this interval
     #
 
-    # Create a file name to output the data
-    t0_str = t0.strftime('%Y%m%d_%H%M%S')
-    if t0.date == t1.date:
-        t1_str = t1.strftime('%H%M%S')
-    else:
-        t1_str = t1.strftime('%Y%m%d_%H%M%S')
-    fname = (dropbox_root / '_'.join((sc, optdesc[0:3], mode, 's', t0_str, t1_str))
-             ).with_suffix('.nc')
-    
+    fname = filename(sc, mode, optdesc, t0, t1)
     if fname.exists():
         lut_data = xr.load_dataset(fname)
         fig, axes = plot_max_lut(lut_data)

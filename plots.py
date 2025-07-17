@@ -11,7 +11,7 @@ import datetime as dt
 from pymms.sdc import selections as sel
 from pymms.data import fgm
 
-import database, physics, tools
+import database, physics, tools, maxlut
 
 # Create label locator
 locator = mdates.AutoDateLocator()
@@ -289,7 +289,7 @@ def overview(sc, t0, t1, mode='srvy'):
     plt.show()
 
 
-def load_entropy():
+def load_entropy(inst, t0, t1):
     
     # Files in which relative entropy data is saved
     dir = Path('~/data/mms/dropbox/').expanduser()
@@ -361,16 +361,16 @@ def dissipation_measures(t0, t1, mode='srvy', species='e', t_smooth=None):
     # Get the dataset
     fname = database.load_data(t0, t1, mode=mode)
     data = xr.load_dataset(fname)
-    data = data.rename({'r1_GSE': 'r1',
-                        'r2_GSE': 'r2',
-                        'r3_GSE': 'r3',
-                        'r4_GSE': 'r4'})
 
     # Load the entropy data
     # f_rel = database.filename('mms', mode, t0, t1, optdesc='des-dist-s')
     # s_rel = xr.load_dataset(f_rel)
-    s_rel = load_entropy()
-    s_rel = s_rel.interp_like(data['time'])
+    optdesc = 'd{0}s-moms'.format(species)
+    fname = maxlut.filename('mms', mode, optdesc, t0, t1)
+    if (not fname.exists()):
+        raise ValueError('Entropy data does not exist. Run database.load_entropy. '
+                         '\n            {0}'.format(fname))
+    s_rel = xr.load_dataset(fname)
     
     # Calculate electron frame dissipation measure
     De_moms = xr.Dataset()
@@ -409,9 +409,9 @@ def dissipation_measures(t0, t1, mode='srvy', species='e', t_smooth=None):
 
     # Smooth the entropy data
     if t_smooth is None:
-        sV_rel = s_rel[['sV_rel1', 'sV_rel2', 'sV_rel3', 'sV_rel4']]
-        n = s_rel[['n1', 'n2', 'n3', 'n4']]
-        t = s_rel[['t1', 't2', 't3', 't4']]
+        sV_rel = s_rel[['sv_rel1_lut', 'sv_rel2_lut', 'sv_rel3_lut', 'sv_rel4_lut']]
+        n = s_rel[['n1_lut', 'n2_lut', 'n3_lut', 'n4_lut']]
+        t = s_rel[['t1_lut', 't2_lut', 't3_lut', 't4_lut']]
         R = data[['r1', 'r2', 'r3', 'r4']]
     else:
         sV_rel = xr.Dataset()
@@ -419,15 +419,15 @@ def dissipation_measures(t0, t1, mode='srvy', species='e', t_smooth=None):
         t = xr.Dataset()
         R = xr.Dataset()
         
-        for name in ['sV_rel1', 'sV_rel2', 'sV_rel3', 'sV_rel4']:
+        for name in ['sv_rel1_lut', 'sv_rel2_lut', 'sv_rel3_lut', 'sv_rel4_lut']:
             sV_rel[name] = tools.smooth(s_rel[name], t_smooth)
             # sV_rel[name] = tools.smooth(s_rel[name], 3,
             #                             weights=np.array([0.25, 0.5, 0.25]))
-        for name in ['n1', 'n2', 'n3', 'n4']:
+        for name in ['n1_lut', 'n2_lut', 'n3_lut', 'n4_lut']:
             n[name] = tools.smooth(s_rel[name], t_smooth)
             # n[name] = tools.smooth(s_rel[name], 3,
             #                        weights=np.array([0.25, 0.5, 0.25]))
-        for name in ['t1', 't2', 't3', 't4']:
+        for name in ['t1_lut', 't2_lut', 't3_lut', 't4_lut']:
             t[name] = tools.smooth(s_rel[name], t_smooth)
             # t[name] = tools.smooth(s_rel[name], 3,
             #                             weights=np.array([0.25, 0.5, 0.25]))
@@ -491,7 +491,7 @@ def dissipation_measures(t0, t1, mode='srvy', species='e', t_smooth=None):
     pE_rel['HORNET'].plot(ax=ax)
     ax.set_title('')
     ax.set_xlabel('')
-    ax.set_ylabel('$-nd\mathcal{E}_{'+'e'+'V,rel}/dt$\n[$nW/m^{3}$]')
+    ax.set_ylabel('$P_{HORNET}$\n[$nW/m^{3}$]')
     format_axes(ax)
 
     plt.setp(axes, xlim=(t0, t1))

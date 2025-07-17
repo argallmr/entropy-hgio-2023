@@ -7,7 +7,7 @@ from pathlib import Path
 from pymms.data import util, fgm, edp, fpi, edi
 from pymms import config
 
-import tools, physics
+import tools, physics, maxlut
 
 eV2K = c.value('electron volt-kelvin relationship')
 
@@ -508,6 +508,51 @@ def get_dis_data(sc, mode, t0, t1):
 
 def load_entropy(mode, start_date, end_date,
                  optdesc='des-dist'):
+
+    fname = filename('mms', mode, start_date, end_date)
+    if (not fname.exists()):
+        raise ValueError('Data does not exist. Run load_data.')
+    data = xr.load_dataset(fname)
+
+    # Entropy parameters for each spacecraft
+    s_rel = xr.Dataset()
+    for sc in ['mms1', 'mms2', 'mms3', 'mms4']:
+        
+        # Read the LUT file results
+        fname = maxlut.filename(sc, mode, optdesc, start_date, end_date)
+        if (not fname.exists()):
+            raise ValueError('LUT file for {0} does not exist. Run maxlut.main_ts'
+                             .format(sc))
+        lut_data = xr.load_dataset(fname)
+        
+        # Make sure the time stamps are the same
+        lut_data = lut_data.interp_like(data['time'], method='nearest',
+                                        kwargs={'fill_value': 'extrapolate'})
+
+        idx = sc[3]
+        # Optimized LUT values
+        s_rel['n'+idx+'_lut'] = lut_data['n_lut']
+        s_rel['t'+idx+'_lut'] = lut_data['t_lut']
+        s_rel['s'+idx+'_lut'] = lut_data['s_lut']
+        s_rel['sv'+idx+'_lut'] = lut_data['sv_lut']
+        s_rel['sv_rel'+idx+'_lut'] = lut_data['sv_rel_lut']
+        s_rel['v_th'+idx+'_lut'] = lut_data['v_th_lut']
+
+        # Derived values
+        s_rel['s'+idx+'_M_moms'] = lut_data['s_M_moms']
+        s_rel['Mbar'+idx+'_lut'] = lut_data['Mbar_lut']
+        s_rel['MbarKP'+idx+'_moms'] = lut_data['MbarKP_moms']
+        s_rel['MbarKP'+idx+'_lut'] = lut_data['MbarKP_lut']
+
+    # Save as dataset
+    fname = maxlut.filename('mms', mode, optdesc, start_date, end_date)
+    s_rel.to_netcdf(fname)
+
+    return fname
+
+
+def _load_entropy(mode, start_date, end_date,
+                     optdesc='des-dist'):
     '''
     Calculate the change in relative energy per particle
 
@@ -536,7 +581,7 @@ def load_entropy(mode, start_date, end_date,
     for sc in ['mms1', 'mms2', 'mms3', 'mms4']:
 
         # Get the LUT
-        lut_file = max_lut_filename(sc, mode, start_date, end_date, optdesc=optdesc)
+        lut_file = _max_lut_filename(sc, mode, start_date, end_date, optdesc=optdesc)
         if not fname.exists():
             raise ValueError('Run load_max_lut first. File does not exist:\n{0}'
                              .format(lut_file))
@@ -548,7 +593,7 @@ def load_entropy(mode, start_date, end_date,
 
         # Measured distrubtion function
         #   - Energy affected in time-dependent manner by S/C pot correction
-        f = max_lut_precond_f(sc, mode, optdesc, start_date, end_date)
+        f = _max_lut_precond_f(sc, mode, optdesc, start_date, end_date)
 
         # Make sure they all have the same timestamps
         #   - Infinity is replaced by NaN. Put infinity back
@@ -568,7 +613,7 @@ def load_entropy(mode, start_date, end_date,
         #
         
         # Equivalent Maxwellian distribution function
-        opt_lut = max_lut_optimize(lut, f, n, t, method='nt')
+        opt_lut = _max_lut_optimize(lut, f, n, t, method='nt')
 
         #
         #  Relative velocity space entropy
@@ -606,8 +651,8 @@ def load_entropy(mode, start_date, end_date,
     return fname
 
 
-def load_max_lut(sc, mode, optdesc, start_date, end_date,
-                 resolution=(100,100)):
+def _load_max_lut(sc, mode, optdesc, start_date, end_date,
+                  resolution=(100,100)):
     '''
     Create a Maxwellian Look-Up Table (LUT).
 
@@ -631,13 +676,13 @@ def load_max_lut(sc, mode, optdesc, start_date, end_date,
     instr = 'fpi'
     level = 'l2'
 
-    lut_file = max_lut_filename(sc, mode, start_date, end_date,
-                                resolution=resolution)
+    lut_file = _max_lut_filename(sc, mode, start_date, end_date,
+                                 resolution=resolution)
     if lut_file.exists():
         return lut_file
 
     # Precondition the distribution function
-    f = max_lut_precond_f(sc, mode, optdesc, start_date, end_date)
+    f = _max_lut_precond_f(sc, mode, optdesc, start_date, end_date)
 
     # Create the look-up table
     lut_file = physics.maxwellian_lut(f, filename=lut_file, dims=resolution)
@@ -645,7 +690,7 @@ def load_max_lut(sc, mode, optdesc, start_date, end_date,
     return lut_file
 
 
-def max_lut_filename(*args, optdesc='des-dist', resolution=(100,100)):
+def _max_lut_filename(*args, optdesc='des-dist', resolution=(100,100)):
     '''
     Create a filename for database files.
 
@@ -669,7 +714,7 @@ def max_lut_filename(*args, optdesc='des-dist', resolution=(100,100)):
     return filename(*args, optdesc=lut_optdesc)
 
 
-def max_lut_precond_f(sc, mode, optdesc, start_date, end_date):
+def _max_lut_precond_f(sc, mode, optdesc, start_date, end_date):
     '''
     Create a Maxwellian Look-Up Table (LUT).
 
@@ -708,7 +753,7 @@ def max_lut_precond_f(sc, mode, optdesc, start_date, end_date):
     return f
 
 
-def max_lut_optimize(lut, f, n, t, method='nt'):
+def _max_lut_optimize(lut, f, n, t, method='nt'):
     '''
     Determine the optimal Maxwellian distribution that best matches
     the density and temperature of the measured distribution function.
